@@ -1,4 +1,4 @@
-# PulseGrid
+# Observa
 
 High-performance real-time telemetry dashboard built with Next.js App Router, TypeScript, custom Canvas rendering, SVG overlays, custom table virtualization, bounded in-memory storage, and worker-backed processing.
 
