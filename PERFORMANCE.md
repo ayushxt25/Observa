@@ -1,6 +1,6 @@
 # PulseGrid Performance Notes
 
-## Goals
+## Performance Goals
 
 - Retain at least 10,000 telemetry points.
 - Support 50,000 and 100,000 point capacity presets.
@@ -8,9 +8,23 @@
 - Keep chart rendering responsive by drawing dense marks on Canvas.
 - Keep React rerenders bounded and explainable.
 
+## Test Environment
+
+Fill this in on the machine used for final recruitment verification:
+
+| Field | Value |
+| --- | --- |
+| Date | TODO |
+| Browser and version | TODO |
+| OS | TODO |
+| CPU | TODO |
+| RAM | TODO |
+| DevTools open? | TODO |
+| Build or dev mode | TODO |
+
 ## Bounded Memory Strategy
 
-Telemetry lives in a fixed-capacity circular buffer. New writes overwrite the oldest slot once capacity is reached. The implementation never uses repeated `Array.shift()`, so appending remains stable as the dataset grows.
+Telemetry lives in a fixed-capacity circular buffer. New writes overwrite the oldest slot once capacity is reached. The implementation never uses repeated `Array.shift()` for retained telemetry, so appending remains stable as the dataset grows.
 
 ## Circular Buffer Strategy
 
@@ -18,31 +32,55 @@ Telemetry lives in a fixed-capacity circular buffer. New writes overwrite the ol
 
 ## Rendering Strategy
 
-Charts use Canvas for dense visual marks and HTML for titles, labels, tooltips, legends and controls. Canvas rendering is scheduled only when inputs, size or interaction state changes. Each chart cleans up animation frames and ResizeObserver subscriptions.
+Charts use Canvas for dense visual marks and SVG for lightweight semantic overlays. Canvas rendering is scheduled only when inputs, size or interaction state changes. Each chart cleans up animation frames and ResizeObserver subscriptions.
+
+## Canvas And SVG Integration
+
+The latency chart uses Canvas for the line and SVG for axis lines, tick labels, title, description and crosshair. The scatter plot uses Canvas for dense points and SVG for axes, tick labels, title and description. This avoids thousands of SVG nodes while keeping chart structure inspectable and accessible.
 
 ## React Optimization Techniques
 
 - Mutable high-frequency data is stored in refs.
 - React state carries controls, summary values and version counters.
-- UI notifications are batched.
-- Context values are memoized.
-- The raw table updates at a reduced cadence.
+- UI notifications are batched independently from 100ms ingestion.
+- Context values and callbacks are memoized.
+- Chart components and the virtualized table use memoization where prop churn is expensive.
+- `useTransition` is used for aggregation, service filtering, time-range and stress-mode changes.
+- `useDeferredValue` is used for the reduced-cadence table snapshot.
 
 ## Next.js Optimizations
 
-The dashboard page is a Server Component that generates the initial serializable dataset. The interactive dashboard is isolated behind a Client Component boundary.
+The dashboard page is a Server Component that generates the initial serializable dataset. The interactive dashboard is isolated behind a Client Component boundary. The generated data endpoint is an App Router Route Handler. The production build statically generates `/dashboard` when appropriate.
+
+## Server Versus Client Decisions
+
+- Server: initial 10,000-point dataset generation in `app/dashboard/page.tsx`.
+- Client: timers, Canvas, ResizeObserver, pointer interaction, Context provider, controls, worker lifecycle and performance APIs.
+- Route Handler: `/api/data` returns configurable generated batches for demonstration and integration testing.
 
 ## Aggregation And Downsampling
 
 Aggregation modes are raw, 1 minute, 5 minutes and 1 hour. Aggregation computes average, minimum, maximum and count. The latency line uses viewport-aware min/max downsampling when source points substantially exceed horizontal pixels.
 
-## Worker Usage
+## Worker Strategy
 
-`workers/data.worker.ts` handles aggregation and heatmap calculation when filters, time range, aggregation or stress settings change. It uses typed request and response messages and stale responses are ignored using request ids. The provider falls back to main-thread aggregation when Worker is unavailable.
+`workers/data.worker.ts` handles aggregation and heatmap calculation when filters, time range, aggregation or stress settings change. It uses typed request and response messages, and stale responses are ignored using request ids. The provider falls back to main-thread aggregation when Worker is unavailable.
 
 ## Virtualization Strategy
 
-The table uses a fixed row height. It computes visible start and end indexes from `scrollTop`, renders only visible rows plus overscan, and uses spacer elements to preserve scroll height.
+The table uses a fixed row height. It computes visible start and end indexes from `scrollTop`, renders only visible rows plus overscan, and uses spacer elements to preserve scroll height. The UI displays rendered rows versus total rows.
+
+## FPS Methodology
+
+FPS is measured from `requestAnimationFrame` timestamps over rolling one-second windows. Frame duration is calculated from recent frame deltas and displayed in milliseconds.
+
+## Interaction-Latency Methodology
+
+Aggregation, service-filter, time-range and stress-mode interactions call `performance.mark` at user action start and `performance.measure` when the corresponding data-processing path completes. The latest measured interaction latency is displayed in milliseconds.
+
+## Memory Methodology
+
+Heap usage is displayed only when the browser exposes `performance.memory.usedJSHeapSize`. Unsupported browsers show `Not supported`. Heap values should be treated as approximate browser diagnostics, not precise application memory accounting.
 
 ## Benchmark Methodology
 
@@ -52,15 +90,44 @@ Measure on the target browser and hardware with DevTools closed and then open, u
 - 50,000 retained points at batch size 50.
 - 100,000 retained points at batch size 100.
 - Stress mode at each capacity.
+- Aggregation changes across raw, 1 minute, 5 minutes and 1 hour.
+- Service filter and time-range changes.
 
-## Results
+## Browser JavaScript Asset Size Methodology
 
-Measured values must be filled in after running on the target machine.
+Run `npm run build` first, then run `npm run analyze:size`. The script recursively reads browser-delivered JavaScript assets from `.next/static/chunks`, counts only `.js` files, excludes source maps, sums raw bytes from the build output, and sums gzip-compressed bytes using Node's built-in `node:zlib` `gzipSync` per asset.
 
-| Scenario | Browser | Capacity | Batch size | FPS | Heap | Long tasks | Notes |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Baseline | TBD | 10,000 | 10 | TBD | TBD | TBD | Not yet measured |
-| Stress | TBD | 100,000 | 100 | TBD | TBD | TBD | Not yet measured |
+This is an aggregate build-asset measurement. It may include shared chunks that are not all loaded on the `/dashboard` route in a real browser session.
+
+Measured on the current completed production build:
+
+```text
+PulseGrid browser JavaScript asset size
+Directory: .next\static\chunks
+Method: recursively sum .js files; source maps are excluded; gzip uses node:zlib gzipSync per asset.
+Note: aggregate build-asset measurement; may include shared chunks not all loaded on the dashboard route.
+JavaScript files counted: 12
+Raw total bytes: 670505
+Gzip total bytes: 200902
+```
+
+## Measured Results
+
+Measured values must be filled in after running on the target machine. Do not infer or invent them.
+
+| Scenario | Browser | Capacity | Batch size | FPS | Frame ms | Chart render ms | Data processing ms | Interaction latency ms | Heap | Long tasks | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Baseline | TBD | 10,000 | 10 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | Not yet measured |
+| Stress | TBD | 100,000 | 100 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | Not yet measured |
+
+## Bottleneck Analysis
+
+Likely bottlenecks to watch during manual testing:
+
+- Full snapshot copies when invoking worker aggregation.
+- Scatter plot domain scans on very large visible ranges.
+- Heatmap bucket creation during stress mode.
+- Browser support differences for long-task and heap APIs.
 
 ## Scaling To 100,000 And 1,000,000 Points
 
@@ -70,10 +137,12 @@ Measured values must be filled in after running on the target machine.
 
 At 10ms updates, generation should batch writes, aggregate incrementally and reduce UI notification cadence further. Charts should render from prepared views rather than filtering raw points on every tick.
 
-## `performance.memory` Limitations
+## Limitations
 
-`performance.memory` is non-standard and browser-specific. PulseGrid displays `Not supported` when unavailable and does not use it for control logic.
+- Worker requests currently receive snapshots rather than shared typed-array buffers.
+- Heap reporting depends on non-standard browser APIs.
+- Benchmark fields are intentionally placeholders until measured on the target machine.
 
 ## Browser Compatibility Notes
 
-Modern Chromium, Firefox and Safari support the core Canvas and ResizeObserver path. Long-task counts depend on PerformanceObserver longtask support. Worker fallback covers environments without Web Worker support.
+Modern Chromium, Firefox and Safari support the core Canvas, SVG and ResizeObserver path. Long-task counts depend on PerformanceObserver longtask support. Worker fallback covers environments without Web Worker support.

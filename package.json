@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "analyze:size": "node scripts/analyze-size.mjs"
   },
   "dependencies": {
     "next": "16.2.12",
