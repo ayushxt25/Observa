@@ -93,6 +93,14 @@ h2 {
   color: #f8fbff;
 }
 
+.pending-badge {
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--accent-2);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
 .header-actions,
 .segmented,
 .chart-toolbar,
@@ -276,6 +284,41 @@ select {
   touch-action: none;
 }
 
+.chart-svg-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 240px;
+  pointer-events: none;
+}
+
+.chart-toolbar + .chart-canvas + .chart-svg-overlay {
+  top: 31px;
+}
+
+.svg-axis {
+  stroke: rgba(203, 213, 225, 0.42);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.svg-crosshair {
+  stroke: rgba(255, 255, 255, 0.7);
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.svg-tick {
+  fill: #a8bacb;
+  font-size: 11px;
+}
+
+.svg-tick.y {
+  text-anchor: start;
+}
+
 .chart-toolbar {
   justify-content: space-between;
   margin-bottom: 8px;
@@ -426,6 +469,14 @@ select {
 .critical {
   background: rgba(251, 113, 133, 0.16);
   color: #fecdd3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
 }
 
 .loading-panel,

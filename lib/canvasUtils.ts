@@ -45,3 +45,7 @@ export function formatTime(timestamp: number): string {
 export function formatNumber(value: number, digits = 0): string {
   return new Intl.NumberFormat("en", { maximumFractionDigits: digits }).format(value);
 }
+
+export function reportChartRender(durationMs: number): void {
+  window.dispatchEvent(new CustomEvent<{ durationMs: number }>("pulsegrid:chart-render", { detail: { durationMs } }));
+}

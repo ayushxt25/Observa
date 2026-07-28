@@ -9,6 +9,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     type: request.type,
     points: aggregateLatency(filtered, request.mode),
     heatmap: buildHeatmap(filtered),
+    processingStartedAt: request.processingStartedAt,
   };
   self.postMessage(response);
 };

@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { SERVICES, type HeatmapCell } from "@/lib/types";
 import { formatTime } from "@/lib/canvasUtils";
 
-export function Heatmap({ cells }: { cells: HeatmapCell[] }) {
+export const Heatmap = memo(function Heatmap({ cells }: { cells: HeatmapCell[] }) {
   const [hover, setHover] = useState<string | null>(null);
   const buckets = useMemo(() => Array.from(new Set(cells.map((cell) => cell.bucketStart))).sort((a, b) => a - b), [cells]);
   const maxLatency = Math.max(1, ...cells.map((cell) => cell.avgLatency));
@@ -40,4 +40,4 @@ export function Heatmap({ cells }: { cells: HeatmapCell[] }) {
       {hover ? <div className="tooltip fixed-tip">{hover}</div> : null}
     </div>
   );
-}
+});

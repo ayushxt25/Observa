@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { setupCanvas, type Size } from "@/lib/canvasUtils";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { reportChartRender, setupCanvas, type Size } from "@/lib/canvasUtils";
 import { throughputByService } from "@/lib/aggregation";
 import type { TelemetryPoint } from "@/lib/types";
 
-export function BarChart({ points }: { points: TelemetryPoint[] }) {
+export const BarChart = memo(function BarChart({ points }: { points: TelemetryPoint[] }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const [size, setSize] = useState<Size>({ width: 520, height: 240 });
@@ -13,26 +13,31 @@ export function BarChart({ points }: { points: TelemetryPoint[] }) {
   const data = useMemo(() => throughputByService(points), [points]);
 
   const draw = useCallback(() => {
+    const started = performance.now();
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = setupCanvas(canvas, size);
-    if (!ctx) return;
-    ctx.clearRect(0, 0, size.width, size.height);
-    ctx.fillStyle = "#071016";
-    ctx.fillRect(0, 0, size.width, size.height);
-    const max = Math.max(1, ...data.map((item) => item.throughput));
-    const gap = 12;
-    const barWidth = (size.width - gap * (data.length + 1)) / data.length;
-    data.forEach((item, index) => {
-      const height = (item.throughput / max) * (size.height - 44);
-      const x = gap + index * (barWidth + gap);
-      const y = size.height - height - 24;
-      ctx.fillStyle = "#5eead4";
-      ctx.fillRect(x, y, barWidth, height);
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = "11px sans-serif";
-      ctx.fillText(item.service.slice(0, 6), x, size.height - 8);
-    });
+    try {
+      if (!canvas) return;
+      const ctx = setupCanvas(canvas, size);
+      if (!ctx) return;
+      ctx.clearRect(0, 0, size.width, size.height);
+      ctx.fillStyle = "#071016";
+      ctx.fillRect(0, 0, size.width, size.height);
+      const max = Math.max(1, ...data.map((item) => item.throughput));
+      const gap = 12;
+      const barWidth = (size.width - gap * (data.length + 1)) / data.length;
+      data.forEach((item, index) => {
+        const height = (item.throughput / max) * (size.height - 44);
+        const x = gap + index * (barWidth + gap);
+        const y = size.height - height - 24;
+        ctx.fillStyle = "#5eead4";
+        ctx.fillRect(x, y, barWidth, height);
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "11px sans-serif";
+        ctx.fillText(item.service.slice(0, 6), x, size.height - 8);
+      });
+    } finally {
+      reportChartRender(performance.now() - started);
+    }
   }, [data, size]);
 
   useEffect(() => {
@@ -55,6 +60,8 @@ export function BarChart({ points }: { points: TelemetryPoint[] }) {
       <canvas
         ref={canvasRef}
         className="chart-canvas"
+        role="img"
+        aria-label="Throughput by service bar chart rendered on Canvas"
         onPointerMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           const x = event.clientX - rect.left;
@@ -67,4 +74,4 @@ export function BarChart({ points }: { points: TelemetryPoint[] }) {
       {hover ? <div className="tooltip floating" style={{ left: hover.x + 12, top: hover.y + 20 }}>{hover.label}</div> : null}
     </div>
   );
-}
+});

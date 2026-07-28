@@ -41,6 +41,13 @@ export interface MetricSummary {
   avgErrorRate: number;
 }
 
+export type InteractionType = "aggregation" | "filter" | "time-range" | "stress";
+
+export interface InteractionMetric {
+  type: InteractionType;
+  durationMs: number;
+}
+
 export interface WorkerRequest {
   id: number;
   type: "aggregate" | "stress";
@@ -49,6 +56,7 @@ export interface WorkerRequest {
   service: ServiceName | "all";
   timeRange: TimeRange;
   capacity: CapacityPreset;
+  processingStartedAt: number;
 }
 
 export interface WorkerResponse {
@@ -56,6 +64,7 @@ export interface WorkerResponse {
   type: "aggregate" | "stress";
   points: AggregatedPoint[];
   heatmap: HeatmapCell[];
+  processingStartedAt: number;
 }
 
 export interface HeatmapCell {
