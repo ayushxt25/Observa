@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { formatTime } from "@/lib/canvasUtils";
 import { calculateVirtualRange } from "@/lib/performanceUtils";
 import { useDataStream } from "@/hooks/useDataStream";
@@ -8,15 +8,16 @@ import { useDataStream } from "@/hooks/useDataStream";
 const rowHeight = 34;
 const viewportHeight = 360;
 
-export function DataTable() {
+export const DataTable = memo(function DataTable() {
   const { visiblePoints, tableVersion } = useDataStream();
   const [scrollTop, setScrollTop] = useState(0);
   const [tablePoints, setTablePoints] = useState(visiblePoints);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const latestPointsRef = useRef(visiblePoints);
-  const points = useMemo(() => tablePoints.slice().reverse(), [tablePoints]);
-  const range = calculateVirtualRange(points.length, rowHeight, viewportHeight, scrollTop, 6);
-  const rows = points.slice(range.startIndex, range.endIndex);
+  const deferredTablePoints = useDeferredValue(tablePoints);
+  const points = useMemo(() => deferredTablePoints.slice().reverse(), [deferredTablePoints]);
+  const range = useMemo(() => calculateVirtualRange(points.length, rowHeight, viewportHeight, scrollTop, 6), [points.length, scrollTop]);
+  const rows = useMemo(() => points.slice(range.startIndex, range.endIndex), [points, range]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -56,4 +57,4 @@ export function DataTable() {
       </div>
     </div>
   );
-}
+});

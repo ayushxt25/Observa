@@ -9,6 +9,8 @@ import type {
   AggregationMode,
   CapacityPreset,
   HeatmapCell,
+  InteractionMetric,
+  InteractionType,
   MetricSummary,
   ServiceName,
   TelemetryPoint,
@@ -30,6 +32,8 @@ interface DataContextValue {
   visiblePoints: TelemetryPoint[];
   aggregatedPoints: AggregatedPoint[];
   heatmap: HeatmapCell[];
+  latestInteraction: InteractionMetric | null;
+  dataProcessingDurationMs: number;
   getSnapshot: () => TelemetryPoint[];
   pause: () => void;
   resume: () => void;
@@ -61,6 +65,8 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
   const [visiblePoints, setVisiblePoints] = useState<TelemetryPoint[]>(() => filterTelemetry(initialData, "all", "15m"));
   const [aggregatedPoints, setAggregatedPoints] = useState<AggregatedPoint[]>(() => aggregateLatency(visiblePoints, "raw"));
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>(() => buildHeatmap(visiblePoints));
+  const [latestInteraction, setLatestInteraction] = useState<InteractionMetric | null>(null);
+  const [dataProcessingDurationMs, setDataProcessingDurationMs] = useState(0);
 
   const bufferRef = useRef(new RingBuffer<TelemetryPoint>(10000, initialData));
   const generatorRef = useRef<GeneratorState>({ seed: 42, sequence: initialData.length, timestamp: initialData.at(-1)?.timestamp ?? 0 });
@@ -71,6 +77,7 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
   const tableTimerRef = useRef<number | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
+  const activeInteractionRef = useRef<{ type: InteractionType; start: number } | null>(null);
 
   useEffect(() => {
     pausedRef.current = isPaused;
@@ -82,7 +89,30 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
 
   const getSnapshot = useCallback(() => bufferRef.current.toArray(), []);
 
+  const beginInteraction = useCallback((type: InteractionType) => {
+    const start = performance.now();
+    activeInteractionRef.current = { type, start };
+    performance.mark(`pulsegrid:${type}:start`);
+  }, []);
+
+  const finishMeasurements = useCallback((processingStart: number) => {
+    const processingDuration = performance.now() - processingStart;
+    setDataProcessingDurationMs(processingDuration);
+    const interaction = activeInteractionRef.current;
+    if (!interaction) return;
+    const endMark = `pulsegrid:${interaction.type}:end`;
+    const measureName = `pulsegrid:${interaction.type}:latency`;
+    performance.mark(endMark);
+    performance.measure(measureName, `pulsegrid:${interaction.type}:start`, endMark);
+    setLatestInteraction({ type: interaction.type, durationMs: performance.now() - interaction.start });
+    performance.clearMarks(`pulsegrid:${interaction.type}:start`);
+    performance.clearMarks(endMark);
+    performance.clearMeasures(measureName);
+    activeInteractionRef.current = null;
+  }, []);
+
   const recompute = useCallback(() => {
+    const processingStart = performance.now();
     const points = getSnapshot();
     setSummary(summarize(points, generatedRef.current));
     const filtered = filterTelemetry(points, serviceFilter, timeRange);
@@ -91,6 +121,7 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
     if (typeof Worker === "undefined") {
       setAggregatedPoints(aggregateLatency(filtered, aggregation));
       setHeatmap(buildHeatmap(filtered));
+      finishMeasurements(processingStart);
       return;
     }
 
@@ -100,13 +131,14 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
         if (event.data.id !== requestIdRef.current) return;
         setAggregatedPoints(event.data.points);
         setHeatmap(event.data.heatmap);
+        finishMeasurements(event.data.processingStartedAt);
       };
     }
     const id = requestIdRef.current + 1;
     requestIdRef.current = id;
-    const request: WorkerRequest = { id, type: "aggregate", points, mode: aggregation, service: serviceFilter, timeRange, capacity };
+    const request: WorkerRequest = { id, type: "aggregate", points, mode: aggregation, service: serviceFilter, timeRange, capacity, processingStartedAt: processingStart };
     workerRef.current.postMessage(request);
-  }, [aggregation, capacity, getSnapshot, serviceFilter, timeRange]);
+  }, [aggregation, capacity, finishMeasurements, getSnapshot, serviceFilter, timeRange]);
 
   const scheduleNotify = useCallback(() => {
     if (notifyTimerRef.current !== null) return;
@@ -158,13 +190,33 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
   }, []);
 
   const stressMode = useCallback(() => {
+    beginInteraction("stress");
     const fresh = generateInitialTelemetry(capacity, 4242);
     bufferRef.current = new RingBuffer<TelemetryPoint>(capacity, fresh.points);
     generatorRef.current = fresh.state;
     generatedRef.current += fresh.points.length;
     setVersion((current) => current + 1);
     recompute();
-  }, [capacity, recompute]);
+  }, [beginInteraction, capacity, recompute]);
+
+  const changeAggregation = useCallback((next: AggregationMode) => {
+    beginInteraction("aggregation");
+    setAggregation(next);
+  }, [beginInteraction]);
+
+  const changeServiceFilter = useCallback((next: ServiceName | "all") => {
+    beginInteraction("filter");
+    setServiceFilter(next);
+  }, [beginInteraction]);
+
+  const changeTimeRange = useCallback((next: TimeRange) => {
+    beginInteraction("time-range");
+    setTimeRange(next);
+  }, [beginInteraction]);
+
+  const pause = useCallback(() => setIsPaused(true), []);
+  const resume = useCallback(() => setIsPaused(false), []);
+  const changeBatchSize = useCallback((next: number) => setBatchSizeState(next), []);
 
   const value = useMemo<DataContextValue>(
     () => ({
@@ -180,18 +232,45 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
       visiblePoints,
       aggregatedPoints,
       heatmap,
+      latestInteraction,
+      dataProcessingDurationMs,
       getSnapshot,
-      pause: () => setIsPaused(true),
-      resume: () => setIsPaused(false),
+      pause,
+      resume,
       reset,
       setCapacity,
-      setBatchSize: setBatchSizeState,
-      setAggregation,
-      setServiceFilter,
-      setTimeRange,
+      setBatchSize: changeBatchSize,
+      setAggregation: changeAggregation,
+      setServiceFilter: changeServiceFilter,
+      setTimeRange: changeTimeRange,
       stressMode,
     }),
-    [aggregation, aggregatedPoints, batchSize, capacity, getSnapshot, heatmap, isPaused, reset, serviceFilter, setCapacity, summary, tableVersion, timeRange, version, visiblePoints, stressMode],
+    [
+      aggregation,
+      aggregatedPoints,
+      batchSize,
+      capacity,
+      changeAggregation,
+      changeBatchSize,
+      changeServiceFilter,
+      changeTimeRange,
+      dataProcessingDurationMs,
+      getSnapshot,
+      heatmap,
+      isPaused,
+      latestInteraction,
+      pause,
+      reset,
+      resume,
+      serviceFilter,
+      setCapacity,
+      stressMode,
+      summary,
+      tableVersion,
+      timeRange,
+      version,
+      visiblePoints,
+    ],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
