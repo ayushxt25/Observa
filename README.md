@@ -1,23 +1,34 @@
 # PulseGrid
 
-PulseGrid is a production-build-safe Next.js App Router telemetry dashboard MVP for monitoring distributed application services. It simulates realistic service telemetry, keeps retained data bounded, and renders dense charts manually with Canvas.
+PulseGrid is a production-build-safe Next.js App Router telemetry dashboard MVP for monitoring distributed application services. It simulates realistic service telemetry, keeps retained data bounded, and renders dense charts manually without charting libraries.
+
+## Live Demo
+
+Live demo: `TODO: add deployed URL for the submitted recruitment build`.
 
 ## Features
 
 - Deterministic telemetry generation for latency, throughput, CPU, memory, error rate, payload size and status.
 - Fixed-capacity ring buffer with 10,000, 50,000 and 100,000 point presets.
 - Live updates every 100ms with pause, resume, reset, service filters, time ranges and stress mode.
-- Canvas charts for latency, throughput, scatter density and service heatmap.
-- HTML overlays for labels, tooltips, legends and interaction controls.
+- Manual line, bar and scatter charts rendered with Canvas.
+- Lightweight SVG overlays for semantic chart titles, descriptions, axes, tick labels and crosshair elements.
+- HTML overlays for tooltips, legends and controls.
 - Worker-backed aggregation with main-thread fallback.
 - Custom virtualized raw telemetry table.
-- Visible FPS, heap availability, long-task and retained-point monitoring.
+- Visible FPS, frame duration, chart render duration, data-processing duration, interaction latency, heap availability, long-task and retained-point monitoring.
+- React hooks and Context only for state management.
+- Concurrent UI transitions for aggregation, filtering, time-range and stress-mode changes.
 
 ## Architecture
 
-The `/dashboard` page is a Server Component. It creates a serializable 10,000-point initial dataset and passes it to `DashboardClient`. Client state is provided through React Context and hooks only. The high-frequency store is a ref-backed `RingBuffer`, while React state carries only lightweight controls, summaries and version ticks.
+The `/dashboard` page is a Server Component. It creates a serializable 10,000-point initial dataset and passes it to `DashboardClient`. Client state is provided through React Context and hooks only. The high-frequency store is a ref-backed `RingBuffer`, while React state carries controls, summaries, visible snapshots and version ticks.
 
-Canvas handles dense marks because it can draw thousands of points without creating thousands of DOM nodes. HTML handles axes, labels, tooltips and controls because those are easier to make accessible and responsive outside the bitmap layer.
+The ingestion timer appends generated batches every 100ms, while UI notifications are batched at a slower cadence so the full retained dataset is not replaced in React state every tick. Aggregation and heatmap calculations run in `workers/data.worker.ts` when Web Workers are available.
+
+## Canvas And SVG Hybrid
+
+Canvas renders dense chart marks because it can draw thousands of points without creating thousands of DOM nodes. SVG is used as a genuine overlay layer for chart semantics and lightweight vector elements such as axis lines, tick labels and the latency crosshair. HTML remains responsible for controls, tooltips, legends and responsive layout.
 
 ## Setup
 
@@ -39,19 +50,36 @@ npm run build
 
 ## Performance Testing
 
-Use the dashboard's Performance panel while changing capacity, batch size, aggregation and service filters. Stress mode fills the selected capacity immediately to exercise aggregation, charts and virtualization.
+Use the dashboard's Performance panel while changing capacity, batch size, aggregation and service filters. The monitor reports measured FPS, frame duration, chart render duration, data-processing duration, latest interaction latency, retained/generated points, long tasks and heap information when the browser exposes it.
+
+## Stress-Test Instructions
+
+1. Select a capacity of 50,000 or 100,000 points.
+2. Click `Stress mode`.
+3. Watch the Performance panel for measured interaction latency, data-processing duration, FPS and long-task count.
+4. Verify that the table still reports rendered rows versus total rows.
 
 Do not record benchmark values in documentation until measured on the target machine and browser.
 
 ## Browser Compatibility
 
-PulseGrid uses Canvas, ResizeObserver, Web Workers, requestAnimationFrame and PerformanceObserver. Heap usage is shown only in browsers that expose `performance.memory`; otherwise the UI reports `Not supported`.
+PulseGrid uses Canvas, SVG, ResizeObserver, Web Workers, requestAnimationFrame and PerformanceObserver. Heap usage is shown only in browsers that expose `performance.memory`; otherwise the UI reports `Not supported`.
 
-## Server And Client Decisions
+## Next.js Optimizations
 
 - `app/dashboard/page.tsx` remains a Server Component and generates initial data.
 - `DashboardClient` and descendants are Client Components because they use hooks, timers, pointer events, Canvas and browser performance APIs.
-- `app/api/data/route.ts` provides configurable generated batches for API-based validation or future polling.
+- `app/api/data/route.ts` provides configurable generated batches through a Route Handler.
+- `/dashboard` is statically generated by the production build when appropriate.
+- Non-critical performance monitoring is loaded behind a Suspense boundary.
+
+## Screenshots
+
+Screenshot placeholders and current local screenshot targets:
+
+- `public/screenshots/dashboard-overview.png`
+- `public/screenshots/heatmap.png`
+- `public/screenshots/stress-test.png`
 
 ## Project Structure
 
@@ -59,20 +87,12 @@ PulseGrid uses Canvas, ResizeObserver, Web Workers, requestAnimationFrame and Pe
 - `app/api/data/route.ts`: generated telemetry batch API.
 - `lib/*`: typed telemetry, generation, ring buffer, aggregation, downsampling and virtualization helpers.
 - `components/providers/*`: ref-backed stream provider.
-- `components/charts/*`: manual Canvas charts.
+- `components/charts/*`: manual Canvas charts with SVG overlays where useful.
 - `components/dashboard/*`: dashboard shell and KPI cards.
-- `components/controls/*`: filters and range controls.
+- `components/controls/*`: filters, load controls and range controls.
 - `components/ui/*`: performance monitor and virtualized table.
 - `workers/data.worker.ts`: worker aggregation path.
 - `tests/*`: pure utility tests.
-
-## Screenshots
-
-Place screenshots in:
-
-- `public/screenshots/dashboard-desktop.png`
-- `public/screenshots/dashboard-mobile.png`
-- `public/screenshots/stress-mode.png`
 
 ## Deployment
 
