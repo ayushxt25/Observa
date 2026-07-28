@@ -170,7 +170,7 @@ h2 {
 }
 
 .controls-grid {
-  grid-template-columns: 1.5fr 1fr 1.4fr;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.4fr);
   margin-bottom: 16px;
 }
 
@@ -181,7 +181,7 @@ h2 {
 
 .control-panel {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
   align-items: end;
   gap: 12px;
 }
@@ -193,11 +193,14 @@ h2 {
 label {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.84rem;
 }
 
 select {
+  width: 100%;
+  min-width: 0;
   min-height: 38px;
   padding: 0 0.55rem;
 }
@@ -205,6 +208,9 @@ select {
 .danger {
   border-color: rgba(251, 113, 133, 0.4);
   color: #fecdd3;
+  width: 100%;
+  min-height: 38px;
+  white-space: nowrap;
 }
 
 .segmented {
@@ -432,12 +438,11 @@ select {
   .metric-grid,
   .controls-grid,
   .charts-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .control-panel,
   .perf-panel {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -455,15 +460,14 @@ select {
   .metric-grid,
   .controls-grid,
   .charts-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .wide {
     grid-column: span 1;
   }
 
-  .control-panel,
   .perf-panel {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
