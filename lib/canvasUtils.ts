@@ -1,21 +1,6 @@
+import { reportChartRender } from "./performance/metrics";
 import type { AggregatedPoint } from "./types";
-
-export interface Size {
-  width: number;
-  height: number;
-}
-
-export function setupCanvas(canvas: HTMLCanvasElement, size: Size): CanvasRenderingContext2D | null {
-  const ratio = window.devicePixelRatio || 1;
-  canvas.width = Math.max(1, Math.floor(size.width * ratio));
-  canvas.height = Math.max(1, Math.floor(size.height * ratio));
-  canvas.style.width = `${size.width}px`;
-  canvas.style.height = `${size.height}px`;
-  const context = canvas.getContext("2d");
-  if (!context) return null;
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
-  return context;
-}
+export { pointerPosition, setupCanvas, type Size } from "./rendering/canvas";
 
 export function downsampleLine(points: readonly AggregatedPoint[], pixelWidth: number): AggregatedPoint[] {
   if (points.length <= pixelWidth * 2 || pixelWidth <= 0) return [...points];
@@ -46,6 +31,4 @@ export function formatNumber(value: number, digits = 0): string {
   return new Intl.NumberFormat("en", { maximumFractionDigits: digits }).format(value);
 }
 
-export function reportChartRender(durationMs: number): void {
-  window.dispatchEvent(new CustomEvent<{ durationMs: number }>("pulsegrid:chart-render", { detail: { durationMs } }));
-}
+export { reportChartRender };

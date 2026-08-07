@@ -1,4 +1,4 @@
-# PulseGrid
+# Observa
 
 High-performance real-time telemetry dashboard built with Next.js App Router, TypeScript, custom Canvas rendering, SVG overlays, custom table virtualization, bounded in-memory storage, and worker-backed processing.
 
@@ -6,6 +6,8 @@ High-performance real-time telemetry dashboard built with Next.js App Router, Ty
 [GitHub Repository](https://github.com/ayushxt25/Performance-Dashboard)
 
 `Next.js 16` `React 19` `TypeScript` `Canvas` `SVG overlays` `Web Worker` `Vitest`
+
+The original v1.0.0 recruitment build is preserved; the current architecture prepares the same simulated dashboard for a future replaceable telemetry backend.
 
 ## Project Preview
 
@@ -64,7 +66,7 @@ PulseGrid was built as a recruitment assignment to demonstrate practical fronten
 - **Viewport-aware downsampling:** the latency line reduces rendered points when source data substantially exceeds available horizontal pixels.
 - **Worker-backed processing:** aggregation and heatmap calculation can run in a Web Worker, with request IDs used to ignore stale responses.
 - **Custom virtualization:** the raw telemetry table renders only visible rows plus overscan and displays rendered rows versus total rows.
-- **Measured bundle asset size:** `npm run analyze:size` reported `670,505` raw bytes and `200,902` gzip bytes across aggregate `.next/static/chunks` JavaScript assets for the completed production build.
+- **Measured bundle asset size:** `npm run analyze:size` reported `675,006` raw bytes and `202,121` gzip bytes across aggregate `.next/static/chunks` JavaScript assets for the completed production build.
 
 The bundle-size result is an aggregate build-asset measurement. It may include shared chunks that are not all loaded on the dashboard route. Runtime performance varies by device, browser, build, and active controls. See [PERFORMANCE.md](PERFORMANCE.md) for methodology, caveats, and scaling notes.
 
@@ -72,24 +74,23 @@ The bundle-size result is an aggregate build-asset measurement. It may include s
 
 ```mermaid
 flowchart TD
-  A["Next.js Server Component<br/>app/dashboard/page.tsx"] --> B["Serializable initial telemetry<br/>10,000 points"]
-  B --> C["Client DataProvider<br/>React Context + hooks"]
-  C --> D["Bounded RingBuffer"]
-  D --> E["Web Worker aggregation<br/>with stale response IDs"]
-  D --> F["Canvas chart renderers"]
-  F --> G["SVG/HTML overlays<br/>axes, labels, tooltips"]
-  D --> H["Custom virtualized table"]
-  I["Controls<br/>filter, range, capacity, stress"] --> C
-  C --> J["Performance monitor<br/>FPS, memory support, timings"]
+  A["SimulationTelemetrySource<br/>replaceable future source"] --> B["TelemetryStore<br/>bounded RingBuffer"]
+  B --> C["Telemetry Query Layer<br/>range, filter, aggregation"]
+  C --> D["TelemetryWorkerClient<br/>worker or fallback"]
+  D --> E["Render-ready data"]
+  E --> F["Canvas/SVG Charts"]
+  B --> G["Virtualized telemetry table"]
+  H["Control Context<br/>pause, capacity, filters"] --> A
+  H --> C
 ```
 
 ### Data Flow
 
 1. `app/dashboard/page.tsx` generates the initial dataset as a Server Component.
 2. `DashboardClient` passes that data into `DataProvider`.
-3. `DataProvider` stores high-frequency telemetry in a ref-backed `RingBuffer`.
-4. React state tracks controls, summary metrics, visible snapshots, and version counters.
-5. Worker-backed processing recomputes aggregation and heatmap data when filters, ranges, aggregation, or stress mode changes.
+3. `SimulationTelemetrySource` emits batches through the same source interface a future remote source can implement.
+4. `TelemetryStore` owns bounded retention and exposes immutable lightweight snapshots plus query/read methods.
+5. Query and worker layers derive filtered, aggregated, and render-ready data when controls change.
 6. Chart components render dense marks on Canvas and use SVG/HTML for lightweight overlays.
 7. The telemetry table computes a visible range from `scrollTop` and renders only rows in that range plus overscan.
 
@@ -132,6 +133,11 @@ components/
 hooks/
   useDataStream.ts           Typed data Context hook
 lib/
+  telemetry/                  Domain types, source, store, query layer
+  workers/                    Typed worker client abstraction
+  performance/                Shared marks and metrics helpers
+  rendering/                  Canvas, scale, viewport helpers
+  visualization/              Chart input contracts
   aggregation.ts             Filtering, aggregation, heatmap helpers
   canvasUtils.ts             Canvas setup and downsampling helpers
   dataGenerator.ts           Deterministic telemetry generator

@@ -3,11 +3,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { reportChartRender, setupCanvas, type Size } from "@/lib/canvasUtils";
 import { throughputByService } from "@/lib/aggregation";
+import { useChartRenderer } from "@/hooks/useChartRenderer";
 import type { TelemetryPoint } from "@/lib/types";
 
 export const BarChart = memo(function BarChart({ points }: { points: TelemetryPoint[] }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const frameRef = useRef<number | null>(null);
   const [size, setSize] = useState<Size>({ width: 520, height: 240 });
   const [hover, setHover] = useState<{ x: number; y: number; label: string } | null>(null);
   const data = useMemo(() => throughputByService(points), [points]);
@@ -40,12 +40,7 @@ export const BarChart = memo(function BarChart({ points }: { points: TelemetryPo
     }
   }, [data, size]);
 
-  useEffect(() => {
-    frameRef.current = requestAnimationFrame(draw);
-    return () => {
-      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    };
-  }, [draw]);
+  useChartRenderer(draw);
 
   useEffect(() => {
     const canvas = canvasRef.current;

@@ -34,6 +34,14 @@ describe("aggregateLatency", () => {
     expect(aggregateLatency(points, "1hour")).toHaveLength(2);
   });
 
+  it("calculates 5-minute aggregation buckets", () => {
+    const result = aggregateLatency([point(0, 10), point(60_000, 30), point(360_000, 50)], "5min");
+    expect(result).toEqual([
+      { timestamp: 0, avg: 20, min: 10, max: 30, count: 2 },
+      { timestamp: 300_000, avg: 50, min: 50, max: 50, count: 1 },
+    ]);
+  });
+
   it("filters telemetry by selected time range", () => {
     const points = [point(0, 10), point(400_000, 20), point(1_000_000, 30)];
     expect(filterTelemetry(points, "all", "5m").map((item) => item.timestamp)).toEqual([1_000_000]);

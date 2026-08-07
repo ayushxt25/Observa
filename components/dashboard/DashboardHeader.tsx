@@ -1,9 +1,10 @@
 "use client";
 
-import { useDataStream } from "@/hooks/useDataStream";
+import { useDashboardControls, useTelemetryActions } from "@/hooks/useDashboardControls";
 
 export function DashboardHeader() {
-  const { isPaused, pause, resume, reset } = useDataStream();
+  const { isPaused } = useDashboardControls();
+  const { pause, resume, reset } = useTelemetryActions();
   return (
     <header className="dashboard-header">
       <div>

@@ -2,27 +2,26 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { downsampleLine, formatTime, reportChartRender, setupCanvas, type Size } from "@/lib/canvasUtils";
-import type { AggregatedPoint } from "@/lib/types";
+import { useChartRenderer } from "@/hooks/useChartRenderer";
+import { calculateViewport } from "@/lib/rendering/viewport";
+import type { TimeSeriesPoint } from "@/lib/visualization/types";
 
 interface Props {
-  points: AggregatedPoint[];
+  points: TimeSeriesPoint[];
 }
 
 export const LineChart = memo(function LineChart({ points }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const frameRef = useRef<number | null>(null);
   const [size, setSize] = useState<Size>({ width: 640, height: 260 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState(0);
-  const [hover, setHover] = useState<{ x: number; y: number; point: AggregatedPoint } | null>(null);
+  const [hover, setHover] = useState<{ x: number; y: number; point: TimeSeriesPoint } | null>(null);
   const draggingRef = useRef<{ x: number; pan: number } | null>(null);
 
   const visible = useMemo(() => {
     if (points.length === 0) return [];
-    const windowSize = Math.max(20, Math.floor(points.length / zoom));
-    const maxStart = Math.max(0, points.length - windowSize);
-    const start = Math.min(maxStart, Math.max(0, Math.floor(pan * maxStart)));
-    return points.slice(start, start + windowSize);
+    const viewport = calculateViewport(points.length, zoom, pan);
+    return points.slice(viewport.start, viewport.end);
   }, [pan, points, zoom]);
 
   const rendered = useMemo(() => downsampleLine(visible, size.width), [size.width, visible]);
@@ -98,13 +97,7 @@ export const LineChart = memo(function LineChart({ points }: Props) {
     }
   }, [rendered, size, xDomain, yDomain]);
 
-  useEffect(() => {
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    frameRef.current = requestAnimationFrame(draw);
-    return () => {
-      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    };
-  }, [draw]);
+  useChartRenderer(draw);
 
   useEffect(() => {
     const canvas = canvasRef.current;

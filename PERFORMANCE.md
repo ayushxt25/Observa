@@ -24,7 +24,7 @@ Fill this in on the machine used for final recruitment verification:
 
 ## Bounded Memory Strategy
 
-Telemetry lives in a fixed-capacity circular buffer. New writes overwrite the oldest slot once capacity is reached. The implementation never uses repeated `Array.shift()` for retained telemetry, so appending remains stable as the dataset grows.
+Telemetry lives in `TelemetryStore`, which owns a fixed-capacity circular buffer. New writes overwrite the oldest slot once capacity is reached. The implementation never uses repeated `Array.shift()` for retained telemetry, so appending remains stable as the dataset grows.
 
 ## Circular Buffer Strategy
 
@@ -40,7 +40,7 @@ The latency chart uses Canvas for the line and SVG for axis lines, tick labels, 
 
 ## React Optimization Techniques
 
-- Mutable high-frequency data is stored in refs.
+- Mutable high-frequency data is stored in an external telemetry store instead of React state.
 - React state carries controls, summary values and version counters.
 - UI notifications are batched independently from 100ms ingestion.
 - Context values and callbacks are memoized.
@@ -55,8 +55,14 @@ The dashboard page is a Server Component that generates the initial serializable
 ## Server Versus Client Decisions
 
 - Server: initial 10,000-point dataset generation in `app/dashboard/page.tsx`.
-- Client: timers, Canvas, ResizeObserver, pointer interaction, Context provider, controls, worker lifecycle and performance APIs.
+- Client: replaceable telemetry source lifecycle, bounded store, Canvas, ResizeObserver, pointer interaction, Context provider, controls, worker lifecycle and performance APIs.
 - Route Handler: `/api/data` returns configurable generated batches for demonstration and integration testing.
+
+## Source, Store And Query Architecture
+
+`SimulationTelemetrySource` emits deterministic telemetry batches through a `TelemetrySource` interface. `TelemetryStore` owns bounded retention and exposes lightweight immutable snapshots plus read/query methods. The telemetry query layer handles time ranges, service filtering, summaries, aggregation periods and heatmap input. `TelemetryWorkerClient` centralizes worker requests, response IDs, stale-response protection, fallback processing and termination.
+
+This structure keeps the chart layer independent of the current simulator so a future `RemoteTelemetrySource` can supply REST, SSE or WebSocket data without rewriting chart components.
 
 ## Aggregation And Downsampling
 
@@ -64,7 +70,7 @@ Aggregation modes are raw, 1 minute, 5 minutes and 1 hour. Aggregation computes 
 
 ## Worker Strategy
 
-`workers/data.worker.ts` handles aggregation and heatmap calculation when filters, time range, aggregation or stress settings change. It uses typed request and response messages, and stale responses are ignored using request ids. The provider falls back to main-thread aggregation when Worker is unavailable.
+`TelemetryWorkerClient` owns communication with `workers/data.worker.ts`, which handles aggregation and heatmap calculation when filters, time range, aggregation or stress settings change. It uses typed request and response messages, and stale responses are ignored using request ids. The client falls back to main-thread aggregation when Worker is unavailable.
 
 ## Virtualization Strategy
 
@@ -107,8 +113,8 @@ Directory: .next\static\chunks
 Method: recursively sum .js files; source maps are excluded; gzip uses node:zlib gzipSync per asset.
 Note: aggregate build-asset measurement; may include shared chunks not all loaded on the dashboard route.
 JavaScript files counted: 12
-Raw total bytes: 670505
-Gzip total bytes: 200902
+Raw total bytes: 675006
+Gzip total bytes: 202121
 ```
 
 ## Measured Results

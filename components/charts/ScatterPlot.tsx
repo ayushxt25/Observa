@@ -2,11 +2,11 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { reportChartRender, setupCanvas, type Size } from "@/lib/canvasUtils";
-import type { TelemetryPoint } from "@/lib/types";
+import { useChartRenderer } from "@/hooks/useChartRenderer";
+import type { ScatterDatum } from "@/lib/visualization/types";
 
-export const ScatterPlot = memo(function ScatterPlot({ points }: { points: TelemetryPoint[] }) {
+export const ScatterPlot = memo(function ScatterPlot({ points }: { points: ScatterDatum[] }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const frameRef = useRef<number | null>(null);
   const [size, setSize] = useState<Size>({ width: 520, height: 240 });
   const [hover, setHover] = useState<string | null>(null);
   const domain = useMemo(() => {
@@ -42,12 +42,7 @@ export const ScatterPlot = memo(function ScatterPlot({ points }: { points: Telem
     }
   }, [domain, points, size]);
 
-  useEffect(() => {
-    frameRef.current = requestAnimationFrame(draw);
-    return () => {
-      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    };
-  }, [draw]);
+  useChartRenderer(draw);
 
   useEffect(() => {
     const canvas = canvasRef.current;

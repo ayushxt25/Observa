@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense } from "react";
+import { lazy, memo, Suspense } from "react";
 import { DataProvider } from "@/components/providers/DataProvider";
 import { BarChart } from "@/components/charts/BarChart";
 import { Heatmap } from "@/components/charts/Heatmap";
@@ -11,7 +11,7 @@ import { TimeRangeSelector } from "@/components/controls/TimeRangeSelector";
 import { DataTable } from "@/components/ui/DataTable";
 import { DashboardHeader } from "./DashboardHeader";
 import { MetricCards } from "./MetricCards";
-import { useDataStream } from "@/hooks/useDataStream";
+import { useTelemetryQuery } from "@/hooks/useTelemetryQuery";
 import type { TelemetryPoint } from "@/lib/types";
 
 const PerformanceMonitor = lazy(() =>
@@ -20,8 +20,31 @@ const PerformanceMonitor = lazy(() =>
   })),
 );
 
+const ChartGrid = memo(function ChartGrid() {
+  const telemetry = useTelemetryQuery();
+  return (
+    <section className="charts-grid">
+      <article className="panel chart-card wide">
+        <h2>Latency over time</h2>
+        <LineChart points={telemetry.aggregatedPoints} />
+      </article>
+      <article className="panel chart-card">
+        <h2>Throughput by service</h2>
+        <BarChart points={telemetry.visiblePoints} />
+      </article>
+      <article className="panel chart-card">
+        <h2>Payload size vs latency</h2>
+        <ScatterPlot points={telemetry.visiblePoints} />
+      </article>
+      <article className="panel chart-card wide">
+        <h2>Service latency heatmap</h2>
+        <Heatmap cells={telemetry.heatmap} />
+      </article>
+    </section>
+  );
+});
+
 function DashboardSurface() {
-  const stream = useDataStream();
   return (
     <main className="dashboard-page">
       <DashboardHeader />
@@ -33,24 +56,7 @@ function DashboardSurface() {
           <PerformanceMonitor />
         </Suspense>
       </section>
-      <section className="charts-grid">
-        <article className="panel chart-card wide">
-          <h2>Latency over time</h2>
-          <LineChart points={stream.aggregatedPoints} />
-        </article>
-        <article className="panel chart-card">
-          <h2>Throughput by service</h2>
-          <BarChart points={stream.visiblePoints} />
-        </article>
-        <article className="panel chart-card">
-          <h2>Payload size vs latency</h2>
-          <ScatterPlot points={stream.visiblePoints} />
-        </article>
-        <article className="panel chart-card wide">
-          <h2>Service latency heatmap</h2>
-          <Heatmap cells={stream.heatmap} />
-        </article>
-      </section>
+      <ChartGrid />
       <section className="panel">
         <div className="section-heading">
           <h2>Raw telemetry</h2>
