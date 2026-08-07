@@ -177,6 +177,53 @@ npm run analyze:size
 
 `analyze:size` expects a completed production build and reads JavaScript assets from `.next/static/chunks`.
 
+## Backend Development
+
+Phase 2 adds a backend foundation under [backend/](backend/) without replacing the current frontend simulator. The backend is ready for a future remote telemetry source and provides persistent ingestion, SQL-backed metric queries, service discovery, dependency health checks, and Redis Stream publishing for future live delivery.
+
+```mermaid
+flowchart TD
+  A["FastAPI telemetry API"] --> B["Pydantic v2 validation"]
+  B --> C["IngestionService"]
+  C --> D["SQLAlchemy repository"]
+  D --> E["PostgreSQL telemetry_events"]
+  C --> F["Redis Stream broker"]
+  G["Metric query API"] --> D
+```
+
+Backend stack:
+
+- FastAPI with OpenAPI docs at `http://localhost:8000/docs`.
+- PostgreSQL with SQLAlchemy 2.x models and Alembic migrations.
+- Redis Streams for publishing newly ingested telemetry batches.
+- Pydantic v2 schemas using camelCase JSON compatible with the frontend telemetry model.
+- Pytest coverage for validation, API dependency overrides, query allowlists, and health behavior.
+
+Docker startup from the repository root:
+
+```bash
+docker compose up --build
+```
+
+Local Python startup from `backend/`:
+
+```bash
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+Seed deterministic telemetry into a running backend:
+
+```bash
+python -m scripts.generate_telemetry --count 10000 --batch-size 500 --seed 42
+```
+
+Backend API contract details are documented in [docs/telemetry-api.md](docs/telemetry-api.md). Backend-specific setup details are in [backend/README.md](backend/README.md).
+
 ## Validation
 
 The project is validated with:
