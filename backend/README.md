@@ -38,6 +38,12 @@ Dashboard API
   -> DashboardRepository
   -> PostgreSQL dashboards/dashboard_widgets
   -> typed JSON response
+
+Alert API
+  -> AlertRepository
+  -> AlertEvaluationService
+  -> PostgreSQL alert_rules/incidents
+  -> Celery periodic evaluation via Redis broker
 ```
 
 ## Docker Startup
@@ -72,7 +78,7 @@ alembic upgrade head
 alembic current
 ```
 
-Migration `0001` creates `telemetry_events` and indexes common time/service/region query paths. Migration `0002` creates `dashboards` and `dashboard_widgets` with cascade delete and widget-order indexes.
+Migration `0001` creates `telemetry_events` and indexes common time/service/region query paths. Migration `0002` creates `dashboards` and `dashboard_widgets` with cascade delete and widget-order indexes. Migration `0003` creates `alert_rules` and `incidents`, including a partial unique index for one active firing incident per rule.
 
 ## Seed Data
 
@@ -101,10 +107,22 @@ The generator posts realistic deterministic telemetry to the batch ingestion end
 - `POST /api/v1/dashboards/{id}/widgets`
 - `PATCH /api/v1/dashboards/{id}/widgets/{widget_id}`
 - `DELETE /api/v1/dashboards/{id}/widgets/{widget_id}`
+- `GET /api/v1/alerts`
+- `POST /api/v1/alerts`
+- `GET /api/v1/alerts/{id}`
+- `PATCH /api/v1/alerts/{id}`
+- `DELETE /api/v1/alerts/{id}`
+- `POST /api/v1/alerts/{id}/evaluate`
+- `GET /api/v1/incidents`
+- `GET /api/v1/incidents/{id}`
 
 The API uses camelCase JSON to align with the frontend domain, while Python models use snake_case internally.
 Live SSE reads from Redis Streams; historical HTTP reads remain PostgreSQL-backed.
 Dashboard endpoints persist view configuration only; they do not store telemetry samples or create live streams.
+
+## Alert Evaluation
+
+Celery beat runs one periodic scan task, `alerts.evaluate_due_rules`, every 5 seconds by default. Alert rule intervals have a 5-second minimum, and the scan evaluates only enabled rules whose interval has elapsed. The worker reads PostgreSQL metrics through the existing telemetry repository and writes alert state plus incident transitions transactionally. Redis/Celery outages pause evaluation only; telemetry ingestion, historical reads and SSE live delivery remain independent.
 
 ## Tests
 

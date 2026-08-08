@@ -39,6 +39,7 @@ services:
       MAX_QUERY_ROWS: 10000
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002,https://performance-dashboard-rose.vercel.app
       TELEMETRY_STREAM_MAXLEN: 100000
+      ALERT_SCAN_INTERVAL_SECONDS: 5
     ports:
       - "8001:8000"
     depends_on:
@@ -49,6 +50,40 @@ services:
     command: >
       sh -c "alembic upgrade head &&
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./backend:/app
+
+  celery-worker:
+    build:
+      context: ./backend
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql+psycopg://observa:observa@postgres:5432/observa
+      REDIS_URL: redis://redis:6379/0
+      ALERT_SCAN_INTERVAL_SECONDS: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=INFO
+    volumes:
+      - ./backend:/app
+
+  celery-beat:
+    build:
+      context: ./backend
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql+psycopg://observa:observa@postgres:5432/observa
+      REDIS_URL: redis://redis:6379/0
+      ALERT_SCAN_INTERVAL_SECONDS: 5
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.core.celery_app.celery_app beat --loglevel=INFO --schedule=/tmp/celerybeat-schedule
     volumes:
       - ./backend:/app
 

@@ -211,3 +211,47 @@ Widget JSON uses camelCase:
 ```
 
 Supported widget types are `line`, `bar`, `scatter`, `heatmap`, and `stat`. Supported metrics match the metrics query endpoint: `latency`, `throughput`, `cpuUsage`, `memoryUsage`, `errorRate`, and `payloadSize`.
+
+## Alerting API
+
+Alert rules are backend-owned and evaluated asynchronously by Celery. JSON uses camelCase. Celery scans for due rules every 5 seconds by default; rule evaluation intervals must be at least 5 seconds.
+
+Endpoints:
+
+- `GET /api/v1/alerts`
+- `POST /api/v1/alerts`
+- `GET /api/v1/alerts/{id}`
+- `PATCH /api/v1/alerts/{id}`
+- `DELETE /api/v1/alerts/{id}`
+- `POST /api/v1/alerts/{id}/evaluate`
+- `GET /api/v1/incidents`
+- `GET /api/v1/incidents/{id}`
+
+Alert rule shape:
+
+```json
+{
+  "name": "High API latency",
+  "metric": "latency",
+  "service": "api-gateway",
+  "region": "us-east",
+  "aggregation": "avg",
+  "bucket": "1m",
+  "evaluationWindowSeconds": 300,
+  "operator": ">=",
+  "threshold": 200,
+  "evaluationIntervalSeconds": 60,
+  "cooldownSeconds": 300,
+  "enabled": true
+}
+```
+
+State machine:
+
+- Alert rules expose `normal` or `firing`.
+- Incidents expose `firing` or `resolved`.
+- The evaluator opens one active incident for a rule when it transitions into firing.
+- If a firing rule clears, the active incident is resolved.
+- Cooldown prevents immediate reopen side effects after resolution; it does not hide an already-firing state.
+
+Current limitations: no auth, RBAC, workspaces, notifications, acknowledgements, escalation or incident assignment.

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     )
     redis_stream_name: str = "telemetry:events"
     telemetry_stream_maxlen: int = Field(default=100_000, ge=1, le=5_000_000)
+    alert_scan_interval_seconds: int = Field(default=5, ge=1, le=3600)
 
     @property
     def allowed_origins(self) -> list[str]:

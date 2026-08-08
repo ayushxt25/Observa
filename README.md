@@ -204,6 +204,7 @@ Phase 2 adds a backend foundation under [backend/](backend/) without replacing t
 Phase 3 connects the dashboard to that backend through `RemoteTelemetrySource`.
 Phase 4 adds live Server-Sent Events. `RemoteTelemetrySource` hydrates a bounded historical window over HTTP, then opens `/api/v1/telemetry/stream` from a Redis Stream cursor for incremental live batches. HTTP polling remains as a degraded fallback if SSE is unavailable.
 Phase 5 adds persisted dashboard definitions, configurable widgets, saved widget ordering, and frontend-evaluated threshold rules without changing the telemetry stream architecture.
+Phase 6 adds server-side alert rules, Celery-backed periodic evaluation, and durable incident history. Alerts are evaluated from PostgreSQL metrics on the backend; the browser only manages rules and displays state.
 
 PostgreSQL is the durable telemetry store. Redis Streams are used only for recent live transport/replay and are bounded by `TELEMETRY_STREAM_MAXLEN`. `TelemetryStore` deduplicates by telemetry event id to tolerate replay boundaries.
 
@@ -223,6 +224,7 @@ Backend stack:
 - PostgreSQL with SQLAlchemy 2.x models and Alembic migrations.
 - Redis Streams for publishing newly ingested telemetry batches.
 - Server-Sent Events for live telemetry delivery from Redis Streams.
+- Celery worker and beat services for asynchronous alert evaluation.
 - Pydantic v2 schemas using camelCase JSON compatible with the frontend telemetry model.
 - Pytest coverage for validation, API dependency overrides, query allowlists, and health behavior.
 
@@ -258,6 +260,12 @@ Backend API contract details are documented in [docs/telemetry-api.md](docs/tele
 Observa now supports a built-in default dashboard plus saved dashboards persisted in PostgreSQL. Saved dashboards store widget title, visualization type, metric, service/region filters, aggregation, bucket, time range, position, size, and warning/critical thresholds. The selected dashboard id is remembered in `localStorage`; dashboard definitions remain backend-owned.
 
 Widget rendering still flows through the existing telemetry store/query pipeline. The dashboard configuration layer does not create additional SSE connections, does not move telemetry arrays into React Context, and does not fetch directly inside chart components. If the dashboard API is unavailable, the built-in default dashboard remains usable with simulation mode.
+
+## Alerting
+
+Alert rules are persisted in PostgreSQL and evaluated by Celery using indexed time-window metric queries. Celery beat scans for due rules every 5 seconds by default, and rule evaluation intervals have a 5-second minimum so short intervals are not hidden behind a slower scheduler. The alert state machine is `normal -> firing -> normal`; incident records use `firing` and `resolved`. One active firing incident per rule is allowed. Cooldown prevents immediate reopen side effects after a rule resolves, but an already-firing rule remains visible as firing.
+
+The frontend Alerts panel supports rule create/edit/enable-disable/delete, manual evaluation, and incident history polling. Notifications, acknowledgements, auth, RBAC, Slack/email/PagerDuty integrations, and workspace scoping are intentionally not implemented in this phase.
 
 ## Validation
 

@@ -8,6 +8,7 @@ import { TimeRangeSelector } from "@/components/controls/TimeRangeSelector";
 import { DataTable } from "@/components/ui/DataTable";
 import { DashboardSelector } from "./DashboardSelector";
 import { DashboardWidgetGrid } from "./DashboardWidgetRenderer";
+import { AlertsPanel } from "./AlertsPanel";
 import { DashboardHeader } from "./DashboardHeader";
 import { MetricCards } from "./MetricCards";
 import type { TelemetryPoint } from "@/lib/types";
@@ -33,6 +34,7 @@ function DashboardSurface() {
         </Suspense>
       </section>
       <DashboardSelector />
+      <AlertsPanel />
       <ChartGrid />
       <section className="panel">
         <div className="section-heading">
