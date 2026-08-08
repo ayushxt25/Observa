@@ -2,8 +2,8 @@ export const SERVICES = ["auth", "checkout", "search", "payments", "inventory", 
 export const REGIONS = ["us-east-1", "us-west-2", "eu-central-1", "ap-south-1"] as const;
 export const STATUSES = ["healthy", "degraded", "critical"] as const;
 
-export type ServiceId = (typeof SERVICES)[number];
-export type Region = (typeof REGIONS)[number];
+export type ServiceId = string;
+export type Region = string;
 export type TelemetryStatus = (typeof STATUSES)[number];
 export type MetricName = "latency" | "throughput" | "cpuUsage" | "memoryUsage" | "errorRate" | "payloadSize";
 export type AggregationPeriod = "raw" | "1min" | "5min" | "1hour";
@@ -41,13 +41,18 @@ export interface TelemetrySnapshot {
   capacity: number;
 }
 
+export type TelemetryConnectionState = "idle" | "connecting" | "connected" | "degraded" | "error";
+export type TelemetrySourceKind = "simulation" | "remote";
+
 export interface TelemetrySourceStatus {
-  kind: "simulation" | "remote";
+  kind: TelemetrySourceKind;
   running: boolean;
   paused: boolean;
   intervalMs: number;
   batchSize: number;
   generated: number;
+  state?: TelemetryConnectionState;
+  message?: string;
 }
 
 export interface TelemetryQuery {
@@ -95,4 +100,3 @@ export interface VirtualRange {
   offsetTop: number;
   offsetBottom: number;
 }
-

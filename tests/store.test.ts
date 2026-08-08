@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { TelemetryStore } from "@/lib/telemetry/store";
 import type { TelemetryEvent } from "@/lib/telemetry/types";
 
-function event(timestamp: number): TelemetryEvent {
+function event(timestamp: number, id = `${timestamp}`): TelemetryEvent {
   return {
-    id: `${timestamp}`,
+    id,
     timestamp,
     service: "auth",
     region: "us-east-1",
@@ -38,5 +38,11 @@ describe("TelemetryStore", () => {
     expect(store.getSnapshot().retainedCount).toBe(2);
     expect(store.readAll().map((item) => item.timestamp)).toEqual([2, 3]);
   });
-});
 
+  it("deduplicates telemetry ids during batch append", () => {
+    const store = new TelemetryStore(10, [event(1, "a")]);
+    store.appendBatch([event(1, "a"), event(2, "b"), event(2, "b")]);
+    expect(store.readAll().map((item) => item.id)).toEqual(["a", "b"]);
+    expect(store.getSnapshot()).toMatchObject({ retainedCount: 2, totalReceived: 2 });
+  });
+});

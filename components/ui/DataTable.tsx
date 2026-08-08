@@ -9,7 +9,7 @@ const rowHeight = 34;
 const viewportHeight = 360;
 
 export const DataTable = memo(function DataTable() {
-  const { visiblePoints, snapshotVersion } = useTelemetryQuery();
+  const { visiblePoints } = useTelemetryQuery();
   const [scrollTop, setScrollTop] = useState(0);
   const [tablePoints, setTablePoints] = useState(visiblePoints);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -32,8 +32,11 @@ export const DataTable = memo(function DataTable() {
   }, [visiblePoints]);
 
   useEffect(() => {
-    setTablePoints(latestPointsRef.current);
-  }, [snapshotVersion]);
+    const timer = setInterval(() => {
+      setTablePoints((current) => current === latestPointsRef.current ? current : latestPointsRef.current);
+    }, 500);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <div className="table-wrap">

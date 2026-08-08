@@ -5,11 +5,13 @@ type Listener = () => void;
 
 export class TelemetryStore {
   private buffer: RingBuffer<TelemetryEvent>;
+  private ids: Set<string>;
   private listeners = new Set<Listener>();
   private snapshot: TelemetrySnapshot;
 
   constructor(capacity: number, initial: readonly TelemetryEvent[] = []) {
     this.buffer = new RingBuffer<TelemetryEvent>(capacity, initial);
+    this.ids = new Set(this.buffer.toArray().map((event) => event.id));
     this.snapshot = {
       version: 0,
       retainedCount: this.buffer.size,
@@ -38,12 +40,23 @@ export class TelemetryStore {
 
   appendBatch(events: readonly TelemetryEvent[]): void {
     if (events.length === 0) return;
-    this.buffer.pushMany(events);
-    this.updateSnapshot(events.length, events.at(-1)?.timestamp ?? this.snapshot.latestTimestamp);
+    const accepted: TelemetryEvent[] = [];
+    const incomingIds = new Set<string>();
+    for (const event of events) {
+      if (this.ids.has(event.id) || incomingIds.has(event.id)) continue;
+      incomingIds.add(event.id);
+      accepted.push(event);
+    }
+    if (accepted.length === 0) return;
+    const evicted = this.buffer.pushMany(accepted);
+    for (const event of evicted) this.ids.delete(event.id);
+    for (const event of accepted) this.ids.add(event.id);
+    this.updateSnapshot(accepted.length, accepted.at(-1)?.timestamp ?? this.snapshot.latestTimestamp);
   }
 
   reset(events: readonly TelemetryEvent[] = [], capacity = this.snapshot.capacity): void {
     this.buffer = new RingBuffer<TelemetryEvent>(capacity, events);
+    this.ids = new Set(this.buffer.toArray().map((event) => event.id));
     this.snapshot = {
       version: this.snapshot.version + 1,
       retainedCount: this.buffer.size,
@@ -56,6 +69,7 @@ export class TelemetryStore {
 
   setCapacity(capacity: number): void {
     this.buffer = this.buffer.resize(capacity);
+    this.ids = new Set(this.buffer.toArray().map((event) => event.id));
     this.snapshot = {
       ...this.snapshot,
       version: this.snapshot.version + 1,
@@ -80,4 +94,3 @@ export class TelemetryStore {
     for (const listener of this.listeners) listener();
   }
 }
-

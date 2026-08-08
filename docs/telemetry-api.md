@@ -97,6 +97,29 @@ Raw queries are capped by `MAX_QUERY_ROWS`.
 
 Returns observed service names, the latest timestamp per service, and a recent event count.
 
+## Raw Event Query
+
+`GET /api/v1/telemetry`
+
+Used by `RemoteTelemetrySource` to hydrate and incrementally refresh the frontend `TelemetryStore`.
+
+Supported query parameters:
+
+- `start`
+- `end`
+- `service`
+- `region`
+- `limit`
+
+The response is capped by the lower of backend `MAX_QUERY_ROWS` and the raw telemetry hard cap of `10,000` rows. Results are deterministic by `timestamp` and `id`. Without `start`, the endpoint returns the latest capped window in chronological order. With `start`, it returns matching rows from that timestamp forward.
+
+```json
+{
+  "events": [],
+  "limited": false
+}
+```
+
 ## Future Streaming Contract
 
 New ingested batches are published to a Redis Stream named by `REDIS_STREAM_NAME` with camelCase event JSON. A future SSE or WebSocket delivery layer can subscribe to that stream without coupling directly to ingestion.

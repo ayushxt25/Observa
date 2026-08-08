@@ -8,6 +8,7 @@ High-performance real-time telemetry dashboard built with Next.js App Router, Ty
 `Next.js 16` `React 19` `TypeScript` `Canvas` `SVG overlays` `Web Worker` `Vitest`
 
 The original v1.0.0 recruitment build is preserved; the current architecture prepares the same simulated dashboard for a future replaceable telemetry backend.
+Phase 3 adds an optional remote backend mode while preserving simulation mode.
 
 ## Project Preview
 
@@ -55,6 +56,7 @@ PulseGrid was built as a recruitment assignment to demonstrate practical fronten
 - Responsive desktop, tablet, and mobile layout.
 - App Router loading and error boundaries.
 - Bundle-size analysis script for aggregate browser JavaScript assets.
+- Optional remote backend mode using the FastAPI telemetry API.
 - Focused Vitest coverage for the ring buffer, aggregation, downsampling, virtualization range calculation, and time-range filtering.
 
 ## Performance Highlights
@@ -89,10 +91,11 @@ flowchart TD
 1. `app/dashboard/page.tsx` generates the initial dataset as a Server Component.
 2. `DashboardClient` passes that data into `DataProvider`.
 3. `SimulationTelemetrySource` emits batches through the same source interface a future remote source can implement.
-4. `TelemetryStore` owns bounded retention and exposes immutable lightweight snapshots plus query/read methods.
-5. Query and worker layers derive filtered, aggregated, and render-ready data when controls change.
-6. Chart components render dense marks on Canvas and use SVG/HTML for lightweight overlays.
-7. The telemetry table computes a visible range from `scrollTop` and renders only rows in that range plus overscan.
+4. `RemoteTelemetrySource` can instead poll the FastAPI backend, map API DTOs to frontend telemetry events, and feed the same store.
+5. `TelemetryStore` owns bounded retention and exposes immutable lightweight snapshots plus query/read methods.
+6. Query and worker layers derive filtered, aggregated, and render-ready data when controls change. In remote mode, non-raw latency aggregation can use the backend metric query endpoint.
+7. Chart components render dense marks on Canvas and use SVG/HTML for lightweight overlays.
+8. The telemetry table computes a visible range from `scrollTop` and renders only rows in that range plus overscan.
 
 ## Tech Stack
 
@@ -152,6 +155,10 @@ scripts/
   analyze-size.mjs           Aggregate JavaScript asset-size analyzer
 public/screenshots/
   *.png                      README screenshots captured from deployment
+backend/
+  app/                       FastAPI backend for persistent telemetry
+docs/
+  telemetry-api.md           Frontend/backend API contract
 ```
 
 ## Getting Started
@@ -162,6 +169,20 @@ npm run dev
 ```
 
 Open `http://localhost:3000/dashboard`.
+
+For remote backend mode, create `.env.local` from `.env.example`:
+
+```bash
+NEXT_PUBLIC_OBSERVA_API_URL=http://localhost:8001
+```
+
+Start the backend with Docker, seed data, then choose `Remote backend` in the Stream controls panel:
+
+```bash
+docker compose up --build
+cd backend
+python -m scripts.generate_telemetry --count 10000 --batch-size 500 --seed 42
+```
 
 ## Available Scripts
 
@@ -180,6 +201,8 @@ npm run analyze:size
 ## Backend Development
 
 Phase 2 adds a backend foundation under [backend/](backend/) without replacing the current frontend simulator. The backend is ready for a future remote telemetry source and provides persistent ingestion, SQL-backed metric queries, service discovery, dependency health checks, and Redis Stream publishing for future live delivery.
+Phase 3 connects the dashboard to that backend through `RemoteTelemetrySource`; WebSocket/SSE push streaming is still intentionally deferred.
+The remote source polls capped raw telemetry windows, tracks a timestamp watermark for incremental refresh, and relies on `TelemetryStore` ID deduplication to avoid duplicate retained events.
 
 ```mermaid
 flowchart TD

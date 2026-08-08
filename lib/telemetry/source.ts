@@ -1,12 +1,17 @@
 import { createInitialGeneratorState, generateInitialTelemetry, generateTelemetryBatch, type GeneratorState } from "@/lib/dataGenerator";
-import type { TelemetryEvent, TelemetrySourceStatus } from "./types";
+import { SERVICES, type ServiceId, type TelemetryEvent, type TelemetrySourceKind, type TelemetrySourceStatus } from "./types";
 
 export interface TelemetrySource {
-  readonly kind: "simulation" | "remote";
+  readonly kind: TelemetrySourceKind;
   start(): void | Promise<void>;
   stop(): void | Promise<void>;
   subscribe(listener: (batch: readonly TelemetryEvent[]) => void): () => void;
   getStatus(): TelemetrySourceStatus;
+  pause?(): void;
+  resume?(): void;
+  reset?(seed?: number, timestamp?: number, sequence?: number, generated?: number): void;
+  setBatchSize?(batchSize: number): void;
+  getServices?(): Promise<ServiceId[]> | ServiceId[];
 }
 
 export interface SimulationTelemetrySourceOptions {
@@ -90,6 +95,11 @@ export class SimulationTelemetrySource implements TelemetrySource {
       intervalMs: this.intervalMs,
       batchSize: this.batchSize,
       generated: this.generated,
+      state: this.timer ? "connected" : "idle",
     };
+  }
+
+  getServices(): ServiceId[] {
+    return [...SERVICES];
   }
 }

@@ -47,6 +47,10 @@ class TelemetryBatchIn(ApiModel):
     events: list[TelemetryEventIn] = Field(min_length=1)
 
 
+class TelemetryEventOut(TelemetryEventIn):
+    created_at: datetime
+
+
 class IngestionResponse(ApiModel):
     accepted_count: int
     rejected_count: int = 0
@@ -61,3 +65,8 @@ class ServiceSummary(ApiModel):
 
 class ServicesResponse(ApiModel):
     services: list[ServiceSummary]
+
+
+class TelemetryEventsResponse(ApiModel):
+    events: list[TelemetryEventOut]
+    limited: bool

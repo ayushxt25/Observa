@@ -1,4 +1,4 @@
-import { SERVICES, type AggregatedPoint, type AggregationPeriod, type HeatmapCell, type MetricSummary, type ServiceId, type TelemetryEvent, type TelemetryQuery, type TimeRange } from "./types";
+import type { AggregatedPoint, AggregationPeriod, HeatmapCell, MetricSummary, ServiceId, TelemetryEvent, TelemetryQuery, TimeRange } from "./types";
 
 export function bucketMsFor(period: AggregationPeriod): number {
   if (period === "1min") return 60_000;
@@ -100,7 +100,8 @@ export function summarize(events: readonly TelemetryEvent[], generatedPoints: nu
 }
 
 export function throughputByService(events: readonly TelemetryEvent[]): Array<{ service: ServiceId; throughput: number; count: number }> {
-  return SERVICES.map((service) => {
+  const services = Array.from(new Set(events.map((event) => event.service))).sort();
+  return services.map((service) => {
     let throughput = 0;
     let count = 0;
     for (const event of events) {

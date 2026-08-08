@@ -3,10 +3,11 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { generateInitialTelemetry } from "@/lib/dataGenerator";
 import { markInteractionStart } from "@/lib/performance/marks";
-import { SimulationTelemetrySource } from "@/lib/telemetry/source";
+import { createTelemetrySource } from "@/lib/telemetry/sourceFactory";
 import { TelemetryStore } from "@/lib/telemetry/store";
 import { TelemetryWorkerClient } from "@/lib/workers/telemetryWorkerClient";
-import type { AggregationMode, CapacityPreset, InteractionType, ServiceName, TelemetryPoint, TimeRange } from "@/lib/types";
+import { SERVICES, type AggregationMode, type CapacityPreset, type InteractionType, type ServiceName, type TelemetryPoint, type TelemetrySourceKind, type TelemetrySourceStatus, type TimeRange } from "@/lib/types";
+import type { TelemetrySource } from "@/lib/telemetry/source";
 
 export interface DashboardControls {
   isPaused: boolean;
@@ -15,6 +16,9 @@ export interface DashboardControls {
   aggregation: AggregationMode;
   serviceFilter: ServiceName | "all";
   timeRange: TimeRange;
+  sourceKind: TelemetrySourceKind;
+  sourceStatus: TelemetrySourceStatus;
+  availableServices: ServiceName[];
 }
 
 export interface TelemetryActions {
@@ -26,6 +30,7 @@ export interface TelemetryActions {
   setAggregation: (aggregation: AggregationMode) => void;
   setServiceFilter: (service: ServiceName | "all") => void;
   setTimeRange: (range: TimeRange) => void;
+  setSourceKind: (kind: TelemetrySourceKind) => void;
   stressMode: () => void;
   markInteraction: (type: InteractionType) => void;
 }
@@ -45,6 +50,21 @@ interface Props {
   initialData: TelemetryPoint[];
 }
 
+function initialStatus(kind: TelemetrySourceKind, generated: number): TelemetrySourceStatus {
+  return { kind, running: false, paused: false, intervalMs: kind === "simulation" ? 100 : 5000, batchSize: kind === "simulation" ? 10 : 0, generated, state: "idle" };
+}
+
+function sameStatus(left: TelemetrySourceStatus, right: TelemetrySourceStatus): boolean {
+  return left.kind === right.kind &&
+    left.running === right.running &&
+    left.paused === right.paused &&
+    left.intervalMs === right.intervalMs &&
+    left.batchSize === right.batchSize &&
+    left.generated === right.generated &&
+    left.state === right.state &&
+    left.message === right.message;
+}
+
 export function DataProvider({ initialData, children }: Props & { children: ReactNode }) {
   const [controls, setControls] = useState<DashboardControls>({
     isPaused: false,
@@ -53,49 +73,85 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
     aggregation: "raw",
     serviceFilter: "all",
     timeRange: "15m",
+    sourceKind: "simulation",
+    sourceStatus: initialStatus("simulation", initialData.length),
+    availableServices: [...SERVICES],
   });
 
   const [store] = useState(() => new TelemetryStore(10000, initialData));
-  const [source] = useState(() => new SimulationTelemetrySource({
-    seed: 42,
-    intervalMs: 100,
-    batchSize: 10,
-    startTimestamp: initialData.at(-1)?.timestamp ?? 0,
-    initialSequence: initialData.length,
-    generated: initialData.length,
-  }));
   const [workerClient] = useState(() => new TelemetryWorkerClient());
+  const sourceRef = useRef<TelemetrySource>(createTelemetrySource("simulation", { initialData, batchSize: 10 }));
+  const cleanupSourceRef = useRef<() => void>(() => undefined);
+  const sourceTokenRef = useRef(0);
   const activeInteractionRef = useRef<{ type: InteractionType; start: number } | null>(null);
+  const controlsRef = useRef(controls);
+
   useEffect(() => {
+    controlsRef.current = controls;
+  }, [controls]);
+
+  const startSource = useCallback((source: TelemetrySource) => {
+    sourceTokenRef.current += 1;
+    const token = sourceTokenRef.current;
+    cleanupSourceRef.current();
+    sourceRef.current = source;
     const unsubscribe = source.subscribe((batch) => store.appendBatch(batch));
-    source.start();
-    return () => {
+    void source.start();
+    const updateStatus = () => setControls((current) => {
+      if (sourceTokenRef.current !== token) return current;
+      const sourceStatus = source.getStatus();
+      return sameStatus(current.sourceStatus, sourceStatus) ? current : { ...current, sourceStatus };
+    });
+    const statusTimer = setInterval(updateStatus, 1000);
+    updateStatus();
+    void Promise.resolve(source.getServices?.() ?? []).then((services) => {
+      setControls((current) => {
+        if (sourceTokenRef.current !== token) return current;
+        return current.availableServices.join("\0") === services.join("\0") ? current : { ...current, availableServices: services };
+      });
+    }).catch((error) => {
+      setControls((current) => sourceTokenRef.current === token ? { ...current, sourceStatus: { ...source.getStatus(), state: "degraded", message: error instanceof Error ? error.message : "Service discovery failed" } } : current);
+    });
+    cleanupSourceRef.current = () => {
+      clearInterval(statusTimer);
       unsubscribe();
-      source.stop();
+      void source.stop();
+    };
+  }, [store]);
+
+  useEffect(() => {
+    startSource(sourceRef.current);
+    return () => {
+      cleanupSourceRef.current();
       workerClient.terminate();
     };
-  }, [source, store, workerClient]);
+  }, [startSource, workerClient]);
 
   const markInteraction = useCallback((type: InteractionType) => {
     activeInteractionRef.current = markInteractionStart(type);
   }, []);
 
   const pause = useCallback(() => {
-    source.pause();
-    setControls((current) => ({ ...current, isPaused: true }));
-  }, [source]);
+    sourceRef.current.pause?.();
+    setControls((current) => ({ ...current, isPaused: true, sourceStatus: sourceRef.current.getStatus() }));
+  }, []);
 
   const resume = useCallback(() => {
-    source.resume();
-    setControls((current) => ({ ...current, isPaused: false }));
-  }, [source]);
+    sourceRef.current.resume?.();
+    setControls((current) => ({ ...current, isPaused: false, sourceStatus: sourceRef.current.getStatus() }));
+  }, []);
 
   const reset = useCallback(() => {
     const capacity = store.getSnapshot().capacity as CapacityPreset;
+    if (sourceRef.current.kind === "remote") {
+      store.reset([], capacity);
+      sourceRef.current.reset?.();
+      return;
+    }
     const fresh = generateInitialTelemetry(Math.min(capacity, 10000), 42);
     store.reset(fresh.points, capacity);
-    source.reset(42, fresh.state.timestamp, fresh.state.sequence, fresh.points.length);
-  }, [source, store]);
+    sourceRef.current.reset?.(42, fresh.state.timestamp, fresh.state.sequence, fresh.points.length);
+  }, [store]);
 
   const setCapacity = useCallback((capacity: CapacityPreset) => {
     store.setCapacity(capacity);
@@ -103,9 +159,9 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
   }, [store]);
 
   const setBatchSize = useCallback((batchSize: number) => {
-    source.setBatchSize(batchSize);
-    setControls((current) => ({ ...current, batchSize }));
-  }, [source]);
+    sourceRef.current.setBatchSize?.(batchSize);
+    setControls((current) => ({ ...current, batchSize, sourceStatus: sourceRef.current.getStatus() }));
+  }, []);
 
   const setAggregation = useCallback((aggregation: AggregationMode) => {
     markInteraction("aggregation");
@@ -122,13 +178,34 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
     setControls((current) => ({ ...current, timeRange }));
   }, [markInteraction]);
 
+  const setSourceKind = useCallback((sourceKind: TelemetrySourceKind) => {
+    const current = controlsRef.current;
+    if (current.sourceKind === sourceKind) return;
+    const capacity = store.getSnapshot().capacity as CapacityPreset;
+    const nextSource = createTelemetrySource(sourceKind, { initialData, batchSize: current.batchSize });
+    store.reset(sourceKind === "simulation" ? initialData.slice(-capacity) : [], capacity);
+    setControls((state) => ({
+      ...state,
+      sourceKind,
+      isPaused: false,
+      serviceFilter: "all",
+      availableServices: sourceKind === "simulation" ? [...SERVICES] : [],
+      sourceStatus: initialStatus(sourceKind, sourceKind === "simulation" ? initialData.length : 0),
+    }));
+    startSource(nextSource);
+  }, [initialData, startSource, store]);
+
   const stressMode = useCallback(() => {
     markInteraction("stress");
+    if (sourceRef.current.kind === "remote") {
+      sourceRef.current.reset?.();
+      return;
+    }
     const capacity = store.getSnapshot().capacity as CapacityPreset;
     const fresh = generateInitialTelemetry(capacity, 4242);
     store.reset(fresh.points, capacity);
-    source.reset(4242, fresh.state.timestamp, fresh.state.sequence, fresh.points.length);
-  }, [markInteraction, source, store]);
+    sourceRef.current.reset?.(4242, fresh.state.timestamp, fresh.state.sequence, fresh.points.length);
+  }, [markInteraction, store]);
 
   const actions = useMemo<TelemetryActions>(() => ({
     pause,
@@ -139,9 +216,10 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
     setAggregation,
     setServiceFilter,
     setTimeRange,
+    setSourceKind,
     stressMode,
     markInteraction,
-  }), [markInteraction, pause, reset, resume, setAggregation, setBatchSize, setCapacity, setServiceFilter, setTimeRange, stressMode]);
+  }), [markInteraction, pause, reset, resume, setAggregation, setBatchSize, setCapacity, setServiceFilter, setSourceKind, setTimeRange, stressMode]);
 
   const services = useMemo<TelemetryServices>(() => ({
     store,

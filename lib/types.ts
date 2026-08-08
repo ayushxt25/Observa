@@ -17,6 +17,7 @@ export type {
   TelemetryPoint,
   TelemetryQuery,
   TelemetrySnapshot,
+  TelemetrySourceKind,
   TelemetrySourceStatus,
   TelemetryStatus,
   TimeRange,

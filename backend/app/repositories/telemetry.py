@@ -56,6 +56,26 @@ class TelemetryRepository:
             return self._raw_metric_points(query.metric, filters, max_rows)
         return self._bucketed_metric_points(query, filters, max_rows)
 
+    def events(
+        self,
+        query: MetricQueryParams,
+        max_rows: int,
+        *,
+        latest: bool = True,
+    ) -> tuple[list[TelemetryEventModel], bool]:
+        order = (
+            (TelemetryEventModel.timestamp.desc(), TelemetryEventModel.id.desc())
+            if latest
+            else (TelemetryEventModel.timestamp.asc(), TelemetryEventModel.id.asc())
+        )
+        stmt = select(TelemetryEventModel).order_by(*order)
+        stmt = self._where(stmt, self._filters(query)).limit(max_rows + 1)
+        rows = list(self.db.scalars(stmt).all())
+        selected = rows[:max_rows]
+        if latest:
+            selected.reverse()
+        return selected, len(rows) > max_rows
+
     def service_summaries(self, recent_window_minutes: int = 60) -> list[ServiceSummary]:
         recent_since = datetime.now(timezone.utc) - timedelta(minutes=recent_window_minutes)
         stmt = (

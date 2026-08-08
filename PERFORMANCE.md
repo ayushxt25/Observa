@@ -62,7 +62,11 @@ The dashboard page is a Server Component that generates the initial serializable
 
 `SimulationTelemetrySource` emits deterministic telemetry batches through a `TelemetrySource` interface. `TelemetryStore` owns bounded retention and exposes lightweight immutable snapshots plus read/query methods. The telemetry query layer handles time ranges, service filtering, summaries, aggregation periods and heatmap input. `TelemetryWorkerClient` centralizes worker requests, response IDs, stale-response protection, fallback processing and termination.
 
-This structure keeps the chart layer independent of the current simulator so a future `RemoteTelemetrySource` can supply REST, SSE or WebSocket data without rewriting chart components.
+`RemoteTelemetrySource` implements the same source contract for the FastAPI backend. It polls capped raw telemetry results, maps API DTOs into frontend telemetry events, cancels stale requests with `AbortController`, exposes connection status, and feeds `TelemetryStore` rather than bypassing it. Non-raw latency aggregation in remote mode can use the backend SQL metric query endpoint; charts still consume render-ready frontend data.
+
+This structure keeps the chart layer independent of the current simulator and backend transport. SSE or WebSocket push streaming remains a future transport option.
+
+Remote raw event queries are capped server-side and use timestamp watermark polling. `TelemetryStore` deduplicates by event id before appending to the bounded ring buffer, so repeated boundary records do not grow retained client data.
 
 ## Aggregation And Downsampling
 
@@ -71,6 +75,8 @@ Aggregation modes are raw, 1 minute, 5 minutes and 1 hour. Aggregation computes 
 ## Worker Strategy
 
 `TelemetryWorkerClient` owns communication with `workers/data.worker.ts`, which handles aggregation and heatmap calculation when filters, time range, aggregation or stress settings change. It uses typed request and response messages, and stale responses are ignored using request ids. The client falls back to main-thread aggregation when Worker is unavailable.
+
+In remote mode, backend SQL aggregation is used for non-raw latency series where appropriate. The worker still supports local derivations such as heatmap data from retained points.
 
 ## Virtualization Strategy
 

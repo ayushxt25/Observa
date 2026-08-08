@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { SERVICES, type AggregationMode, type CapacityPreset, type ServiceName } from "@/lib/types";
+import type { AggregationMode, CapacityPreset, ServiceName, TelemetrySourceKind } from "@/lib/types";
 import { useDashboardControls, useTelemetryActions } from "@/hooks/useDashboardControls";
 
 const capacities: CapacityPreset[] = [10000, 50000, 100000];
@@ -18,6 +18,16 @@ export function FilterPanel() {
       <label>Capacity
         <select aria-label="Retained point capacity" value={controls.capacity} onChange={(event) => actions.setCapacity(Number(event.target.value) as CapacityPreset)}>
           {capacities.map((capacity) => <option key={capacity} value={capacity}>{capacity.toLocaleString("en-US")}</option>)}
+        </select>
+      </label>
+      <label>Source
+        <select
+          aria-label="Telemetry source"
+          value={controls.sourceKind}
+          onChange={(event) => actions.setSourceKind(event.target.value as TelemetrySourceKind)}
+        >
+          <option value="simulation">Simulation</option>
+          <option value="remote">Remote backend</option>
         </select>
       </label>
       <label>Batch size
@@ -47,7 +57,7 @@ export function FilterPanel() {
           }}
         >
           <option value="all">All services</option>
-          {SERVICES.map((service) => <option key={service} value={service}>{service}</option>)}
+          {controls.availableServices.map((service) => <option key={service} value={service}>{service}</option>)}
         </select>
       </label>
       <button type="button" className="danger" aria-label="Activate stress test mode" onClick={() => startTransition(actions.stressMode)}>Stress mode</button>
