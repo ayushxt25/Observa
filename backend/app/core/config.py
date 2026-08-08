@@ -18,6 +18,7 @@ class Settings(BaseSettings):
         "https://performance-dashboard-rose.vercel.app"
     )
     redis_stream_name: str = "telemetry:events"
+    telemetry_stream_maxlen: int = Field(default=100_000, ge=1, le=5_000_000)
 
     @property
     def allowed_origins(self) -> list[str]:

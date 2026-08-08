@@ -1,5 +1,5 @@
 import type { AggregationMode, MetricName, Region, ServiceId, TimeRange } from "@/lib/types";
-import type { ApiMetricQueryResponse, ApiServicesResponse, ApiTelemetryEvent, ApiTelemetryEventsResponse } from "./types";
+import type { ApiMetricQueryResponse, ApiServicesResponse, ApiTelemetryEvent, ApiTelemetryEventsResponse, ApiTelemetryStreamCursorResponse } from "./types";
 import { ObservaApiClient } from "./client";
 import type { TelemetryEvent } from "@/lib/telemetry/types";
 
@@ -70,6 +70,12 @@ export class TelemetryApi {
     const response = await this.client.get<ApiServicesResponse>("/api/v1/services", { signal });
     if (!Array.isArray(response.services)) throw new Error("Invalid services response");
     return response.services.map((item) => item.service).filter(Boolean);
+  }
+
+  async fetchStreamCursor(signal?: AbortSignal): Promise<string> {
+    const response = await this.client.get<ApiTelemetryStreamCursorResponse>("/api/v1/telemetry/stream/cursor", { signal });
+    if (typeof response.cursor !== "string") throw new Error("Invalid stream cursor response");
+    return response.cursor;
   }
 
   async queryMetric(options: {

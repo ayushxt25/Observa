@@ -6,7 +6,7 @@ export function DashboardHeader() {
   const { isPaused, sourceKind, sourceStatus } = useDashboardControls();
   const { pause, resume, reset } = useTelemetryActions();
   const statusText = sourceKind === "remote"
-    ? sourceStatus.state === "connected" ? "Backend connected" : sourceStatus.state === "error" ? "Backend unavailable" : "Backend connecting"
+    ? sourceStatus.state === "connected" ? "Backend connected" : sourceStatus.state === "reconnecting" || sourceStatus.state === "degraded" ? "Backend reconnecting" : sourceStatus.state === "error" || sourceStatus.state === "offline" ? "Backend unavailable" : "Backend connecting"
     : isPaused ? "Simulation paused" : "Simulation live";
   return (
     <header className="dashboard-header">

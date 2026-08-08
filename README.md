@@ -202,7 +202,9 @@ npm run analyze:size
 
 Phase 2 adds a backend foundation under [backend/](backend/) without replacing the current frontend simulator. The backend is ready for a future remote telemetry source and provides persistent ingestion, SQL-backed metric queries, service discovery, dependency health checks, and Redis Stream publishing for future live delivery.
 Phase 3 connects the dashboard to that backend through `RemoteTelemetrySource`; WebSocket/SSE push streaming is still intentionally deferred.
-The remote source polls capped raw telemetry windows, tracks a timestamp watermark for incremental refresh, and relies on `TelemetryStore` ID deduplication to avoid duplicate retained events.
+Phase 4 adds live Server-Sent Events. `RemoteTelemetrySource` hydrates a bounded historical window over HTTP, then opens `/api/v1/telemetry/stream` from a Redis Stream cursor for incremental live batches. HTTP polling remains as a degraded fallback if SSE is unavailable.
+
+PostgreSQL is the durable telemetry store. Redis Streams are used only for recent live transport/replay and are bounded by `TELEMETRY_STREAM_MAXLEN`. `TelemetryStore` deduplicates by telemetry event id to tolerate replay boundaries.
 
 ```mermaid
 flowchart TD
@@ -219,6 +221,7 @@ Backend stack:
 - FastAPI with OpenAPI docs at `http://localhost:8000/docs`.
 - PostgreSQL with SQLAlchemy 2.x models and Alembic migrations.
 - Redis Streams for publishing newly ingested telemetry batches.
+- Server-Sent Events for live telemetry delivery from Redis Streams.
 - Pydantic v2 schemas using camelCase JSON compatible with the frontend telemetry model.
 - Pytest coverage for validation, API dependency overrides, query allowlists, and health behavior.
 
@@ -244,6 +247,8 @@ Seed deterministic telemetry into a running backend:
 ```bash
 python -m scripts.generate_telemetry --count 10000 --batch-size 500 --seed 42
 ```
+
+To test live mode, start the frontend, choose `Remote backend`, then ingest additional telemetry. The dashboard should hydrate from PostgreSQL and receive new batches through SSE without a manual refresh.
 
 Backend API contract details are documented in [docs/telemetry-api.md](docs/telemetry-api.md). Backend-specific setup details are in [backend/README.md](backend/README.md).
 

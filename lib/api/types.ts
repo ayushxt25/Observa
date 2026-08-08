@@ -18,6 +18,14 @@ export interface ApiTelemetryEventsResponse {
   limited: boolean;
 }
 
+export interface ApiTelemetryStreamCursorResponse {
+  cursor: string;
+}
+
+export interface ApiTelemetryStreamMessage {
+  events: ApiTelemetryEvent[];
+}
+
 export interface ApiServiceSummary {
   service: string;
   latestTimestamp: string | null;

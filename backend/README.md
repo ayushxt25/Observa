@@ -82,10 +82,14 @@ The generator posts realistic deterministic telemetry to the batch ingestion end
 - `GET /ready`
 - `POST /api/v1/telemetry`
 - `POST /api/v1/telemetry/batch`
+- `GET /api/v1/telemetry`
+- `GET /api/v1/telemetry/stream/cursor`
+- `GET /api/v1/telemetry/stream`
 - `GET /api/v1/metrics/query`
 - `GET /api/v1/services`
 
 The API uses camelCase JSON to align with the frontend domain, while Python models use snake_case internally.
+Live SSE reads from Redis Streams; historical HTTP reads remain PostgreSQL-backed.
 
 ## Tests
 

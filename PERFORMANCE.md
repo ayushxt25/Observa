@@ -64,9 +64,16 @@ The dashboard page is a Server Component that generates the initial serializable
 
 `RemoteTelemetrySource` implements the same source contract for the FastAPI backend. It polls capped raw telemetry results, maps API DTOs into frontend telemetry events, cancels stale requests with `AbortController`, exposes connection status, and feeds `TelemetryStore` rather than bypassing it. Non-raw latency aggregation in remote mode can use the backend SQL metric query endpoint; charts still consume render-ready frontend data.
 
-This structure keeps the chart layer independent of the current simulator and backend transport. SSE or WebSocket push streaming remains a future transport option.
+Remote mode now hydrates capped history over HTTP and uses Server-Sent Events for incremental raw telemetry batches. The SSE endpoint reads Redis Streams with blocking reads and keepalive comments; it does not poll PostgreSQL for live delivery.
 
-Remote raw event queries are capped server-side and use timestamp watermark polling. `TelemetryStore` deduplicates by event id before appending to the bounded ring buffer, so repeated boundary records do not grow retained client data.
+Remote raw event queries are capped server-side and fallback polling uses timestamp watermarks. `TelemetryStore` deduplicates by event id before appending to the bounded ring buffer, so repeated boundary records do not grow retained client data.
+
+Hydration race strategy:
+
+1. Capture the current Redis Stream cursor.
+2. Hydrate the latest bounded PostgreSQL window over HTTP.
+3. Open SSE from that cursor.
+4. Rely on store id deduplication for boundary replay safety.
 
 ## Aggregation And Downsampling
 
@@ -77,6 +84,10 @@ Aggregation modes are raw, 1 minute, 5 minutes and 1 hour. Aggregation computes 
 `TelemetryWorkerClient` owns communication with `workers/data.worker.ts`, which handles aggregation and heatmap calculation when filters, time range, aggregation or stress settings change. It uses typed request and response messages, and stale responses are ignored using request ids. The client falls back to main-thread aggregation when Worker is unavailable.
 
 In remote mode, backend SQL aggregation is used for non-raw latency series where appropriate. The worker still supports local derivations such as heatmap data from retained points.
+
+## Live Streaming Strategy
+
+Ingestion commits to PostgreSQL first, then publishes the accepted batch to Redis Stream `telemetry:events`. A Redis publish failure does not roll back durable ingestion. SSE clients read directly from Redis using blocking `XREAD`, avoiding unbounded per-client queues. Slow clients that fall behind Redis retention should perform HTTP rehydration and reconnect from the current cursor.
 
 ## Virtualization Strategy
 

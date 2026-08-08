@@ -41,7 +41,7 @@ export interface TelemetrySnapshot {
   capacity: number;
 }
 
-export type TelemetryConnectionState = "idle" | "connecting" | "connected" | "degraded" | "error";
+export type TelemetryConnectionState = "idle" | "connecting" | "connected" | "reconnecting" | "degraded" | "offline" | "error";
 export type TelemetrySourceKind = "simulation" | "remote";
 
 export interface TelemetrySourceStatus {

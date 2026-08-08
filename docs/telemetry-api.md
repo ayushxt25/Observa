@@ -122,4 +122,55 @@ The response is capped by the lower of backend `MAX_QUERY_ROWS` and the raw tele
 
 ## Future Streaming Contract
 
-New ingested batches are published to a Redis Stream named by `REDIS_STREAM_NAME` with camelCase event JSON. A future SSE or WebSocket delivery layer can subscribe to that stream without coupling directly to ingestion.
+New ingested batches are published to a Redis Stream named by `REDIS_STREAM_NAME` with camelCase event JSON. PostgreSQL remains the source of historical truth; Redis is the recent live transport and replay buffer.
+
+## Live SSE Stream
+
+`GET /api/v1/telemetry/stream/cursor`
+
+Returns the current Redis Stream id:
+
+```json
+{
+  "cursor": "1723050000000-0"
+}
+```
+
+`GET /api/v1/telemetry/stream?cursor=<redis-stream-id>`
+
+Streams raw telemetry batches as Server-Sent Events:
+
+```text
+id: 1723050000001-0
+event: telemetry
+data: {"events":[...]}
+```
+
+Resume semantics:
+
+- The frontend first captures `/stream/cursor`, then hydrates recent history over HTTP, then opens SSE from that cursor.
+- Events ingested after the cursor are replayed from Redis, closing the hydration-to-stream race.
+- Browser reconnects can use SSE `Last-Event-ID`; the endpoint also accepts `cursor`.
+- Boundary duplicates are safe because `TelemetryStore` deduplicates by telemetry event id.
+
+Keepalive comments are sent on idle reads:
+
+```text
+: keepalive
+```
+
+Redis stream failures are sent as a typed SSE frame before the connection is closed:
+
+```text
+event: stream-error
+data: {"message":"Redis stream unavailable"}
+```
+
+Redis Stream retention is controlled by `TELEMETRY_STREAM_MAXLEN` and uses approximate max length. If a client falls behind retention, it should rehydrate via HTTP and reconnect from the current cursor.
+
+Production notes:
+
+- Add auth before exposing SSE outside trusted environments.
+- Configure proxies/load balancers to avoid buffering `text/event-stream`.
+- CORS must include the frontend origin.
+- Rate limits and connection limits are future hardening items.

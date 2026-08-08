@@ -1,8 +1,13 @@
+import asyncio
 from datetime import datetime
+import json
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -17,11 +22,12 @@ from app.schemas.telemetry import (
     TelemetryEventsResponse,
 )
 from app.services.ingestion import IngestionService
-from app.streaming.broker import TelemetryBroker
+from app.streaming.broker import TelemetryBroker, TelemetryStreamCursorError
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 RAW_TELEMETRY_DEFAULT_LIMIT = 10_000
 RAW_TELEMETRY_HARD_LIMIT = 10_000
+logger = logging.getLogger(__name__)
 
 
 def get_broker(request: Request) -> TelemetryBroker:
@@ -108,3 +114,61 @@ def query_events(
         for row in rows
     ]
     return TelemetryEventsResponse(events=events, limited=limited)
+
+
+@router.get("/stream/cursor", summary="Get the current telemetry stream cursor")
+async def stream_cursor(
+    broker: Annotated[TelemetryBroker, Depends(get_broker)],
+) -> dict[str, str]:
+    try:
+        return {"cursor": await broker.latest_id()}
+    except RedisError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Redis stream unavailable") from exc
+
+
+@router.get("/stream", summary="Stream live telemetry events")
+async def stream_events(
+    request: Request,
+    broker: Annotated[TelemetryBroker, Depends(get_broker)],
+    cursor: str | None = None,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+) -> StreamingResponse:
+    start_cursor = cursor or last_event_id or "$"
+    try:
+        broker.validate_cursor(start_cursor)
+    except TelemetryStreamCursorError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    async def event_generator():
+        logger.info("telemetry_stream_connect cursor=%s", start_cursor)
+        yield "retry: 5000\n\n"
+        try:
+            async for stream_id, events in broker.read_batches(start_cursor):
+                if await request.is_disconnected():
+                    logger.info("telemetry_stream_disconnect cursor=%s", stream_id)
+                    break
+                if not events:
+                    yield ": keepalive\n\n"
+                    continue
+                payload = json.dumps({"events": events}, separators=(",", ":"))
+                yield f"id: {stream_id}\nevent: telemetry\ndata: {payload}\n\n"
+        except RedisError as exc:
+            logger.warning("telemetry_stream_redis_failed cursor=%s error=%s", start_cursor, exc)
+            yield "retry: 5000\nevent: stream-error\ndata: {\"message\":\"Redis stream unavailable\"}\n\n"
+            await asyncio.sleep(5)
+        except Exception as exc:
+            logger.exception("telemetry_stream_failed cursor=%s error=%s", start_cursor, exc)
+            yield "retry: 5000\nevent: stream-error\ndata: {\"message\":\"Telemetry stream failed\"}\n\n"
+            await asyncio.sleep(5)
+        finally:
+            logger.info("telemetry_stream_closed cursor=%s", start_cursor)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
