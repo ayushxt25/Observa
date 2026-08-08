@@ -32,7 +32,8 @@ body {
 }
 
 button,
-select {
+select,
+input {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #101a25;
@@ -46,12 +47,14 @@ button {
 }
 
 button:hover,
-select:hover {
+select:hover,
+input:hover {
   border-color: #356078;
 }
 
 button:focus-visible,
-select:focus-visible {
+select:focus-visible,
+input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -206,11 +209,19 @@ label {
   font-size: 0.84rem;
 }
 
-select {
+select,
+input {
   width: 100%;
   min-width: 0;
   min-height: 38px;
   padding: 0 0.55rem;
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .danger {
@@ -253,6 +264,115 @@ select {
 
 .charts-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.dashboard-config-panel {
+  margin-bottom: 16px;
+}
+
+.dashboard-config-grid,
+.widget-config-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.widget-config-row {
+  margin-top: 12px;
+}
+
+.widget-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 10px;
+}
+
+.widget-heading h2 {
+  margin: 0;
+}
+
+.widget-heading span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.widget-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.widget-actions button {
+  min-height: 32px;
+  padding: 0.35rem 0.55rem;
+}
+
+.widget-edit-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(17, 27, 39, 0.72);
+}
+
+.widget-edit-actions {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+}
+
+.form-error {
+  grid-column: 1 / -1;
+  color: #fecdd3;
+  font-size: 0.82rem;
+}
+
+.widget-card {
+  position: relative;
+}
+
+.threshold-badge {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.threshold-warning {
+  border-color: rgba(250, 204, 21, 0.55);
+}
+
+.threshold-critical {
+  border-color: rgba(251, 113, 133, 0.65);
+}
+
+.widget-stat {
+  display: grid;
+  min-height: 240px;
+  align-content: center;
+  gap: 10px;
+}
+
+.widget-stat span,
+.widget-stat small {
+  color: var(--muted);
+}
+
+.widget-stat strong {
+  font-size: clamp(2rem, 6vw, 4rem);
+}
+
+.empty-state {
   margin-bottom: 16px;
 }
 

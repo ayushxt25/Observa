@@ -82,16 +82,18 @@ export class TelemetryApi {
     signal?: AbortSignal;
     metric: MetricName;
     aggregation: "avg" | "min" | "max" | "sum" | "count";
-    bucket: AggregationMode;
+    bucket: AggregationMode | "1m" | "5m" | "1h";
     service?: ServiceId | "all";
+    region?: Region;
     start?: number;
     end?: number;
   }): Promise<ApiMetricQueryResponse> {
     const path = appendQuery("/api/v1/metrics/query", {
       metric: options.metric,
       aggregation: options.aggregation,
-      bucket: mapAggregationToBucket(options.bucket),
+      bucket: options.bucket === "1m" || options.bucket === "5m" || options.bucket === "1h" ? options.bucket : mapAggregationToBucket(options.bucket),
       service: options.service,
+      region: options.region,
       start: options.start === undefined ? undefined : new Date(options.start).toISOString(),
       end: options.end === undefined ? undefined : new Date(options.end).toISOString(),
     });

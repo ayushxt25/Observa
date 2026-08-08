@@ -20,6 +20,22 @@ export class ObservaApiClient {
   }
 
   async get<T>(path: string, init: RequestInit = {}): Promise<T> {
+    return this.request<T>("GET", path, undefined, init);
+  }
+
+  async post<T>(path: string, body: unknown, init: RequestInit = {}): Promise<T> {
+    return this.request<T>("POST", path, body, init);
+  }
+
+  async patch<T>(path: string, body: unknown, init: RequestInit = {}): Promise<T> {
+    return this.request<T>("PATCH", path, body, init);
+  }
+
+  async delete(path: string, init: RequestInit = {}): Promise<void> {
+    await this.request<void>("DELETE", path, undefined, init);
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown, init: RequestInit = {}): Promise<T> {
     if (!this.baseUrl) throw new ObservaApiError("Remote API URL is not configured");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -29,11 +45,13 @@ export class ObservaApiClient {
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,
-        method: "GET",
+        method,
         signal: controller.signal,
-        headers: { Accept: "application/json", ...init.headers },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...init.headers },
       });
       if (!response.ok) throw new ObservaApiError(`Request failed with ${response.status}`, response.status);
+      if (response.status === 204) return undefined as T;
       return await response.json() as T;
     } catch (error) {
       if (error instanceof ObservaApiError) throw error;

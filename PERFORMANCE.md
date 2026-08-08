@@ -85,6 +85,14 @@ Aggregation modes are raw, 1 minute, 5 minutes and 1 hour. Aggregation computes 
 
 In remote mode, backend SQL aggregation is used for non-raw latency series where appropriate. The worker still supports local derivations such as heatmap data from retained points.
 
+## Configurable Dashboard Strategy
+
+Phase 5 stores dashboard and widget configuration in PostgreSQL while keeping high-frequency telemetry in `TelemetryStore`. Dashboard config is low-frequency UI state and is isolated from the telemetry source lifecycle. All widgets share the same `RemoteTelemetrySource` and SSE connection for a dashboard session.
+
+Widget rendering uses a central renderer boundary that maps widget config to existing chart inputs. Short live windows are derived from retained events in the external store. Historical telemetry and backend latency aggregation remain available through the HTTP API. A lightweight query-cache utility provides stable metric query keys and in-flight request deduplication for future backend-backed widget queries without creating a large client cache.
+
+Thresholds are semantic frontend evaluation rules: `normal`, `warning`, or `critical`. Styling consumes those states; there is no background alert worker or notification system in this phase.
+
 ## Live Streaming Strategy
 
 Ingestion commits to PostgreSQL first, then publishes the accepted batch to Redis Stream `telemetry:events`. A Redis publish failure does not roll back durable ingestion. SSE clients read directly from Redis using blocking `XREAD`, avoiding unbounded per-client queues. Slow clients that fall behind Redis retention should perform HTTP rehydration and reconnect from the current cursor.

@@ -201,8 +201,9 @@ npm run analyze:size
 ## Backend Development
 
 Phase 2 adds a backend foundation under [backend/](backend/) without replacing the current frontend simulator. The backend is ready for a future remote telemetry source and provides persistent ingestion, SQL-backed metric queries, service discovery, dependency health checks, and Redis Stream publishing for future live delivery.
-Phase 3 connects the dashboard to that backend through `RemoteTelemetrySource`; WebSocket/SSE push streaming is still intentionally deferred.
+Phase 3 connects the dashboard to that backend through `RemoteTelemetrySource`.
 Phase 4 adds live Server-Sent Events. `RemoteTelemetrySource` hydrates a bounded historical window over HTTP, then opens `/api/v1/telemetry/stream` from a Redis Stream cursor for incremental live batches. HTTP polling remains as a degraded fallback if SSE is unavailable.
+Phase 5 adds persisted dashboard definitions, configurable widgets, saved widget ordering, and frontend-evaluated threshold rules without changing the telemetry stream architecture.
 
 PostgreSQL is the durable telemetry store. Redis Streams are used only for recent live transport/replay and are bounded by `TELEMETRY_STREAM_MAXLEN`. `TelemetryStore` deduplicates by telemetry event id to tolerate replay boundaries.
 
@@ -251,6 +252,12 @@ python -m scripts.generate_telemetry --count 10000 --batch-size 500 --seed 42
 To test live mode, start the frontend, choose `Remote backend`, then ingest additional telemetry. The dashboard should hydrate from PostgreSQL and receive new batches through SSE without a manual refresh.
 
 Backend API contract details are documented in [docs/telemetry-api.md](docs/telemetry-api.md). Backend-specific setup details are in [backend/README.md](backend/README.md).
+
+## Dashboard Persistence
+
+Observa now supports a built-in default dashboard plus saved dashboards persisted in PostgreSQL. Saved dashboards store widget title, visualization type, metric, service/region filters, aggregation, bucket, time range, position, size, and warning/critical thresholds. The selected dashboard id is remembered in `localStorage`; dashboard definitions remain backend-owned.
+
+Widget rendering still flows through the existing telemetry store/query pipeline. The dashboard configuration layer does not create additional SSE connections, does not move telemetry arrays into React Context, and does not fetch directly inside chart components. If the dashboard API is unavailable, the built-in default dashboard remains usable with simulation mode.
 
 ## Validation
 

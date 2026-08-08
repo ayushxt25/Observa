@@ -13,7 +13,9 @@ import type { AggregatedPoint, HeatmapCell, InteractionMetric, MetricSummary, Te
 
 export interface TelemetryQueryResult {
   snapshotVersion: number;
+  latestTimestamp: number | null;
   summary: MetricSummary;
+  allPoints: TelemetryPoint[];
   visiblePoints: TelemetryPoint[];
   aggregatedPoints: AggregatedPoint[];
   heatmap: HeatmapCell[];
@@ -87,7 +89,9 @@ export function useTelemetryQuery(): TelemetryQueryResult {
 
   return {
     snapshotVersion,
+    latestTimestamp: snapshot.latestTimestamp,
     summary,
+    allPoints: points,
     visiblePoints,
     aggregatedPoints: workerData.points,
     heatmap: workerData.heatmap,

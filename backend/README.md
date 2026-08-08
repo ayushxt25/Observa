@@ -32,6 +32,12 @@ Metric API
   -> MetricsService
   -> SQL aggregation/query
   -> typed JSON response
+
+Dashboard API
+  -> Pydantic config validation
+  -> DashboardRepository
+  -> PostgreSQL dashboards/dashboard_widgets
+  -> typed JSON response
 ```
 
 ## Docker Startup
@@ -42,7 +48,7 @@ From the repository root:
 docker compose up --build
 ```
 
-The backend is exposed at `http://localhost:8000`. API documentation is available at `http://localhost:8000/docs`.
+The backend is exposed at `http://localhost:8001` through Docker Compose. API documentation is available at `http://localhost:8001/docs`.
 
 ## Local Python Startup
 
@@ -66,7 +72,7 @@ alembic upgrade head
 alembic current
 ```
 
-The initial migration creates `telemetry_events` and indexes common time/service/region query paths.
+Migration `0001` creates `telemetry_events` and indexes common time/service/region query paths. Migration `0002` creates `dashboards` and `dashboard_widgets` with cascade delete and widget-order indexes.
 
 ## Seed Data
 
@@ -87,9 +93,18 @@ The generator posts realistic deterministic telemetry to the batch ingestion end
 - `GET /api/v1/telemetry/stream`
 - `GET /api/v1/metrics/query`
 - `GET /api/v1/services`
+- `GET /api/v1/dashboards`
+- `POST /api/v1/dashboards`
+- `GET /api/v1/dashboards/{id}`
+- `PATCH /api/v1/dashboards/{id}`
+- `DELETE /api/v1/dashboards/{id}`
+- `POST /api/v1/dashboards/{id}/widgets`
+- `PATCH /api/v1/dashboards/{id}/widgets/{widget_id}`
+- `DELETE /api/v1/dashboards/{id}/widgets/{widget_id}`
 
 The API uses camelCase JSON to align with the frontend domain, while Python models use snake_case internally.
 Live SSE reads from Redis Streams; historical HTTP reads remain PostgreSQL-backed.
+Dashboard endpoints persist view configuration only; they do not store telemetry samples or create live streams.
 
 ## Tests
 

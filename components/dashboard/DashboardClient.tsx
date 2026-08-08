@@ -1,17 +1,15 @@
 "use client";
 
 import { lazy, memo, Suspense } from "react";
+import { DashboardConfigProvider } from "@/components/providers/DashboardConfigProvider";
 import { DataProvider } from "@/components/providers/DataProvider";
-import { BarChart } from "@/components/charts/BarChart";
-import { Heatmap } from "@/components/charts/Heatmap";
-import { LineChart } from "@/components/charts/LineChart";
-import { ScatterPlot } from "@/components/charts/ScatterPlot";
 import { FilterPanel } from "@/components/controls/FilterPanel";
 import { TimeRangeSelector } from "@/components/controls/TimeRangeSelector";
 import { DataTable } from "@/components/ui/DataTable";
+import { DashboardSelector } from "./DashboardSelector";
+import { DashboardWidgetGrid } from "./DashboardWidgetRenderer";
 import { DashboardHeader } from "./DashboardHeader";
 import { MetricCards } from "./MetricCards";
-import { useTelemetryQuery } from "@/hooks/useTelemetryQuery";
 import type { TelemetryPoint } from "@/lib/types";
 
 const PerformanceMonitor = lazy(() =>
@@ -20,29 +18,7 @@ const PerformanceMonitor = lazy(() =>
   })),
 );
 
-const ChartGrid = memo(function ChartGrid() {
-  const telemetry = useTelemetryQuery();
-  return (
-    <section className="charts-grid">
-      <article className="panel chart-card wide">
-        <h2>Latency over time</h2>
-        <LineChart points={telemetry.aggregatedPoints} />
-      </article>
-      <article className="panel chart-card">
-        <h2>Throughput by service</h2>
-        <BarChart points={telemetry.visiblePoints} />
-      </article>
-      <article className="panel chart-card">
-        <h2>Payload size vs latency</h2>
-        <ScatterPlot points={telemetry.visiblePoints} />
-      </article>
-      <article className="panel chart-card wide">
-        <h2>Service latency heatmap</h2>
-        <Heatmap cells={telemetry.heatmap} />
-      </article>
-    </section>
-  );
-});
+const ChartGrid = memo(DashboardWidgetGrid);
 
 function DashboardSurface() {
   return (
@@ -56,6 +32,7 @@ function DashboardSurface() {
           <PerformanceMonitor />
         </Suspense>
       </section>
+      <DashboardSelector />
       <ChartGrid />
       <section className="panel">
         <div className="section-heading">
@@ -71,7 +48,9 @@ function DashboardSurface() {
 export function DashboardClient({ initialData }: { initialData: TelemetryPoint[] }) {
   return (
     <DataProvider initialData={initialData}>
-      <DashboardSurface />
+      <DashboardConfigProvider>
+        <DashboardSurface />
+      </DashboardConfigProvider>
     </DataProvider>
   );
 }

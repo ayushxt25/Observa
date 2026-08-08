@@ -174,3 +174,40 @@ Production notes:
 - Configure proxies/load balancers to avoid buffering `text/event-stream`.
 - CORS must include the frontend origin.
 - Rate limits and connection limits are future hardening items.
+
+## Dashboard Configuration API
+
+Dashboard and widget definitions are persisted in PostgreSQL. Telemetry data still flows through the telemetry endpoints; dashboard CRUD only stores configuration.
+
+Endpoints:
+
+- `GET /api/v1/dashboards`
+- `POST /api/v1/dashboards`
+- `GET /api/v1/dashboards/{id}`
+- `PATCH /api/v1/dashboards/{id}`
+- `DELETE /api/v1/dashboards/{id}`
+- `POST /api/v1/dashboards/{id}/widgets`
+- `PATCH /api/v1/dashboards/{id}/widgets/{widgetId}`
+- `DELETE /api/v1/dashboards/{id}/widgets/{widgetId}`
+
+Widget JSON uses camelCase:
+
+```json
+{
+  "title": "API latency",
+  "type": "line",
+  "metric": "latency",
+  "service": "api-gateway",
+  "region": "us-east",
+  "aggregation": "avg",
+  "bucket": "1m",
+  "timeRange": "15m",
+  "position": 0,
+  "width": 2,
+  "height": 1,
+  "thresholdWarning": 150,
+  "thresholdCritical": 250
+}
+```
+
+Supported widget types are `line`, `bar`, `scatter`, `heatmap`, and `stat`. Supported metrics match the metrics query endpoint: `latency`, `throughput`, `cpuUsage`, `memoryUsage`, `errorRate`, and `payloadSize`.
