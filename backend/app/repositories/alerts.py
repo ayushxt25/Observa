@@ -25,29 +25,38 @@ class AlertRepository:
             stmt = stmt.with_for_update()
         return self.db.scalars(stmt).first()
 
-    def create_rule(self, payload: AlertRuleCreate, workspace_id: str) -> AlertRuleModel:
+    def create_rule(self, payload: AlertRuleCreate, workspace_id: str, *, commit: bool = True) -> AlertRuleModel:
         rule = AlertRuleModel(**payload.model_dump(exclude={"notification_channel_ids"}), workspace_id=workspace_id)
         self.db.add(rule)
-        self.db.commit()
-        self.db.refresh(rule)
+        if commit:
+            self.db.commit()
+            self.db.refresh(rule)
+        else:
+            self.db.flush()
         return rule
 
-    def update_rule(self, rule: AlertRuleModel, payload: AlertRulePatch) -> AlertRuleModel:
+    def update_rule(self, rule: AlertRuleModel, payload: AlertRulePatch, *, commit: bool = True) -> AlertRuleModel:
         data = payload.model_dump(exclude_unset=True, exclude={"notification_channel_ids"})
         bucket = data.get("bucket", rule.bucket)
         window = data.get("evaluation_window_seconds", rule.evaluation_window_seconds)
         self._validate_bucket_window(bucket, window)
         for key, value in data.items():
             setattr(rule, key, value)
-        self.db.commit()
-        self.db.refresh(rule)
+        if commit:
+            self.db.commit()
+            self.db.refresh(rule)
+        else:
+            self.db.flush()
         return rule
 
-    def delete_rule(self, rule: AlertRuleModel) -> None:
+    def delete_rule(self, rule: AlertRuleModel, *, commit: bool = True) -> None:
         if self.incident_count(rule.id) > 0:
             raise ValueError("Alert rules with incident history cannot be deleted")
         self.db.delete(rule)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
     def incident_count(self, rule_id: str) -> int:
         return self.db.scalar(select(func.count(IncidentModel.id)).where(IncidentModel.alert_rule_id == rule_id)) or 0

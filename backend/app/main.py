@@ -1,9 +1,12 @@
 from contextlib import asynccontextmanager
 import logging
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from app.api.v1.router import api_router
 from app.api.v1.routes.health import router as health_router
@@ -15,6 +18,14 @@ from app.streaming.broker import TelemetryBroker
 settings = get_settings()
 configure_logging(settings.log_level)
 logger = logging.getLogger(__name__)
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        request.state.request_id = str(uuid4())
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = request.state.request_id
+        return response
 
 
 @asynccontextmanager
@@ -44,6 +55,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(health_router)
 app.include_router(api_router)

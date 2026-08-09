@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertsApi } from "@/lib/api/alerts";
+import { AuditApi } from "@/lib/api/audit";
 import { NotificationsApi } from "@/lib/api/notifications";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { validateAlertDraft } from "@/lib/alerts/validation";
 import type { AlertAggregation, AlertBucket, AlertOperator, AlertRule, AlertRuleDraft, Incident } from "@/lib/alerts/types";
 import type { NotificationChannel, NotificationChannelDraft, NotificationDelivery } from "@/lib/notifications/types";
+import type { AuditEvent } from "@/lib/audit/types";
 import type { MetricName, Region, ServiceId } from "@/lib/types";
 
 const metrics: MetricName[] = ["latency", "throughput", "cpuUsage", "memoryUsage", "errorRate", "payloadSize"];
@@ -42,6 +44,7 @@ function formatDate(value?: string): string {
 
 export function AlertsPanel() {
   const api = useMemo(() => new AlertsApi(), []);
+  const auditApi = useMemo(() => new AuditApi(), []);
   const notificationsApi = useMemo(() => new NotificationsApi(), []);
   const auth = useAuth();
   const activeWorkspaceId = auth.activeWorkspace?.id;
@@ -49,6 +52,7 @@ export function AlertsPanel() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [deliveries, setDeliveries] = useState<NotificationDelivery[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [draft, setDraft] = useState<AlertRuleDraft>(initialDraft);
   const [channelDraft, setChannelDraft] = useState<NotificationChannelDraft>(initialChannelDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -65,12 +69,13 @@ export function AlertsPanel() {
     const requestId = latestRequestRef.current + 1;
     latestRequestRef.current = requestId;
     try {
-      const [rules, history, channelList, deliveryList] = await Promise.all([api.listAlerts(signal), api.listIncidents(signal), notificationsApi.listChannels(signal), notificationsApi.listDeliveries(signal)]);
+      const [rules, history, channelList, deliveryList, auditPage] = await Promise.all([api.listAlerts(signal), api.listIncidents(signal), notificationsApi.listChannels(signal), notificationsApi.listDeliveries(signal), auditApi.listEvents(signal, { limit: 40 }).catch(() => ({ events: [], nextCursor: null }))]);
       if (signal?.aborted || requestId !== latestRequestRef.current) return;
       setAlerts(rules);
       setIncidents(history);
       setChannels(channelList);
       setDeliveries(deliveryList);
+      setAuditEvents(auditPage.events);
       setMessage(null);
     } catch (error) {
       if (signal?.aborted || requestId !== latestRequestRef.current) return;
@@ -78,7 +83,7 @@ export function AlertsPanel() {
     } finally {
       pollingInFlightRef.current = false;
     }
-  }, [api, notificationsApi]);
+  }, [api, auditApi, notificationsApi]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -87,6 +92,7 @@ export function AlertsPanel() {
       setIncidents([]);
       setChannels([]);
       setDeliveries([]);
+      setAuditEvents([]);
       void reload(controller.signal);
     }, 0);
     const timer = window.setInterval(() => void reload(controller.signal, true), 10_000);
@@ -171,7 +177,7 @@ export function AlertsPanel() {
 
   return (
     <section className="panel alerts-panel">
-      <div className="section-heading"><h2>Alerts</h2><span>{message ?? `${alerts.length} rules / ${incidents.length} incidents / ${deliveries.length} deliveries`}</span></div>
+      <div className="section-heading"><h2>Alerts</h2><span>{message ?? `${alerts.length} rules / ${incidents.length} incidents / ${deliveries.length} deliveries / ${auditEvents.length} audit events`}</span></div>
       <div className="alert-form">
         <label>Name<input aria-label="Alert name" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
         <label>Metric<select aria-label="Alert metric" value={draft.metric} onChange={(event) => setDraft((current) => ({ ...current, metric: event.target.value as MetricName }))}>{metrics.map((metric) => <option key={metric} value={metric}>{metric}</option>)}</select></label>
@@ -250,7 +256,21 @@ export function AlertsPanel() {
             </article>
           ))}
         </div>
+        <div className="incident-list audit-list">
+          {auditEvents.length === 0 ? <p>No audit events recorded.</p> : auditEvents.map((event) => (
+            <details className={`incident-row ${event.outcome}`} key={event.id}>
+              <summary><strong>{humanAction(event.action)}</strong><span>{event.outcome} / {formatDate(event.createdAt)}</span></summary>
+              <span>{event.actorType}{event.actorUserId ? ` / ${event.actorUserId.slice(0, 8)}` : ""}</span>
+              <span>{event.resourceType}{event.resourceId ? ` / ${event.resourceId.slice(0, 8)}` : ""}</span>
+              <pre>{JSON.stringify(event.metadata, null, 2)}</pre>
+            </details>
+          ))}
+        </div>
       </div>
     </section>
   );
+}
+
+function humanAction(action: string): string {
+  return action.split(".").map((part) => part.slice(0, 1).toUpperCase() + part.slice(1).replaceAll("_", " ")).join(" ");
 }

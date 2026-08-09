@@ -26,31 +26,43 @@ class DashboardRepository:
         )
         return self.db.scalars(stmt).first()
 
-    def create(self, payload: DashboardCreate, workspace_id: str) -> DashboardModel:
+    def create(self, payload: DashboardCreate, workspace_id: str, *, commit: bool = True) -> DashboardModel:
         dashboard = DashboardModel(name=payload.name, description=payload.description, workspace_id=workspace_id)
         for index, widget in enumerate(payload.widgets):
             dashboard.widgets.append(self._widget_from_create(widget))
         self.db.add(dashboard)
-        self.db.commit()
-        self.db.refresh(dashboard)
-        return self.get(dashboard.id, workspace_id) or dashboard
+        if commit:
+            self.db.commit()
+            self.db.refresh(dashboard)
+            return self.get(dashboard.id, workspace_id) or dashboard
+        self.db.flush()
+        return dashboard
 
-    def update(self, dashboard: DashboardModel, payload: DashboardPatch) -> DashboardModel:
+    def update(self, dashboard: DashboardModel, payload: DashboardPatch, *, commit: bool = True) -> DashboardModel:
         data = payload.model_dump(exclude_unset=True)
         for key, value in data.items():
             setattr(dashboard, key, value)
-        self.db.commit()
-        return self.get(dashboard.id, dashboard.workspace_id) or dashboard
+        if commit:
+            self.db.commit()
+            return self.get(dashboard.id, dashboard.workspace_id) or dashboard
+        self.db.flush()
+        return dashboard
 
-    def delete(self, dashboard: DashboardModel) -> None:
+    def delete(self, dashboard: DashboardModel, *, commit: bool = True) -> None:
         self.db.delete(dashboard)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
-    def create_widget(self, dashboard: DashboardModel, payload: DashboardWidgetCreate) -> DashboardWidgetModel:
+    def create_widget(self, dashboard: DashboardModel, payload: DashboardWidgetCreate, *, commit: bool = True) -> DashboardWidgetModel:
         widget = self._widget_from_create(payload)
         dashboard.widgets.append(widget)
-        self.db.commit()
-        self.db.refresh(widget)
+        if commit:
+            self.db.commit()
+            self.db.refresh(widget)
+        else:
+            self.db.flush()
         return widget
 
     def get_widget(self, dashboard_id: str, widget_id: str) -> DashboardWidgetModel | None:
@@ -60,7 +72,7 @@ class DashboardRepository:
         )
         return self.db.scalars(stmt).first()
 
-    def update_widget(self, widget: DashboardWidgetModel, payload: DashboardWidgetPatch) -> DashboardWidgetModel:
+    def update_widget(self, widget: DashboardWidgetModel, payload: DashboardWidgetPatch, *, commit: bool = True) -> DashboardWidgetModel:
         data = payload.model_dump(exclude_unset=True)
         warning = data.get("threshold_warning", widget.threshold_warning)
         critical = data.get("threshold_critical", widget.threshold_critical)
@@ -68,13 +80,19 @@ class DashboardRepository:
             raise ValueError("thresholdWarning must be less than or equal to thresholdCritical")
         for key, value in data.items():
             setattr(widget, key, value)
-        self.db.commit()
-        self.db.refresh(widget)
+        if commit:
+            self.db.commit()
+            self.db.refresh(widget)
+        else:
+            self.db.flush()
         return widget
 
-    def delete_widget(self, widget: DashboardWidgetModel) -> None:
+    def delete_widget(self, widget: DashboardWidgetModel, *, commit: bool = True) -> None:
         self.db.delete(widget)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
     def _widget_from_create(self, payload: DashboardWidgetCreate) -> DashboardWidgetModel:
         return DashboardWidgetModel(

@@ -4,12 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import get_auth_repository, get_current_active_user
+from app.core import audit_actions
 from app.core.config import Settings, get_settings
 from app.core.rate_limit import RedisRateLimiter
 from app.core.security import create_access_token, verify_password
 from app.models.auth import UserModel, WorkspaceMembershipModel, WorkspaceModel
 from app.repositories.auth import AuthRepository
 from app.schemas.auth import AuthResult, LoginRequest, RegisterRequest, UserOut, WorkspaceOut
+from app.services.audit import AuditService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -37,6 +39,13 @@ def auth_result(user: UserModel, repo: AuthRepository, settings: Settings, respo
     return AuthResult(access_token=create_access_token(settings, user.id), user=user, workspaces=[workspace_out(item) for item in repo.list_workspaces_for_user(user.id)])
 
 
+def first_workspace_id(repo: AuthRepository, user: UserModel | None) -> str | None:
+    if user is None:
+        return None
+    memberships = repo.list_workspaces_for_user(user.id)
+    return memberships[0].workspace_id if memberships else None
+
+
 @router.post("/register", response_model=AuthResult, status_code=status.HTTP_201_CREATED, summary="Register a user")
 def register(
     payload: RegisterRequest,
@@ -52,7 +61,9 @@ def register(
         user = repo.create_user_with_workspace(payload)
     except IntegrityError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered") from exc
-    return auth_result(user, repo, settings, response, request)
+    result = auth_result(user, repo, settings, response, request)
+    AuditService(repo.db).record_auth(action=audit_actions.AUTH_LOGIN, outcome="success", user=user, workspace_id=first_workspace_id(repo, user), request=request, metadata={"registration": True})
+    return result
 
 
 @router.post("/login", response_model=AuthResult, summary="Login")
@@ -66,8 +77,11 @@ def login(
     check_auth_rate_limit(request, settings, "login", settings.auth_rate_limit_login)
     user = repo.get_user_by_email(payload.email)
     if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):
+        AuditService(repo.db).record_auth(action=audit_actions.AUTH_LOGIN, outcome="failure", user=user, workspace_id=first_workspace_id(repo, user), request=request, metadata={"email": payload.email})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-    return auth_result(user, repo, settings, response, request)
+    result = auth_result(user, repo, settings, response, request)
+    AuditService(repo.db).record_auth(action=audit_actions.AUTH_LOGIN, outcome="success", user=user, workspace_id=first_workspace_id(repo, user), request=request)
+    return result
 
 
 @router.post("/refresh", response_model=AuthResult, summary="Rotate refresh session")
@@ -80,9 +94,11 @@ def refresh(
     check_auth_rate_limit(request, settings, "refresh", settings.auth_rate_limit_refresh)
     token = request.cookies.get(settings.refresh_cookie_name)
     if not token:
+        AuditService(repo.db).record_auth(action=audit_actions.AUTH_REFRESH_FAILED, outcome="failure", user=None, workspace_id=None, request=request, metadata={"reason": "missing"})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token required")
     consumed = repo.consume_refresh(token, settings.refresh_token_days, request.headers.get("user-agent"))
     if consumed is None:
+        AuditService(repo.db).record_auth(action=audit_actions.AUTH_REFRESH_FAILED, outcome="failure", user=None, workspace_id=None, request=request, metadata={"reason": "invalid_or_revoked"})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
     user, new_token = consumed
     response.set_cookie(
@@ -105,8 +121,8 @@ def logout(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> None:
     token = request.cookies.get(settings.refresh_cookie_name)
-    if token:
-        repo.revoke_refresh(token)
+    user = repo.revoke_refresh(token) if token else None
+    AuditService(repo.db).record_auth(action=audit_actions.AUTH_LOGOUT, outcome="success", user=user, workspace_id=first_workspace_id(repo, user), request=request)
     response.delete_cookie(settings.refresh_cookie_name, path="/api/v1/auth")
 
 

@@ -16,7 +16,7 @@ class ApiKeyRepository:
         stmt = select(WorkspaceApiKeyModel).where(WorkspaceApiKeyModel.workspace_id == workspace_id).order_by(WorkspaceApiKeyModel.created_at.desc())
         return list(self.db.scalars(stmt).all())
 
-    def create_key(self, workspace_id: str, payload: ApiKeyCreate, created_by_user_id: str | None) -> tuple[WorkspaceApiKeyModel, str]:
+    def create_key(self, workspace_id: str, payload: ApiKeyCreate, created_by_user_id: str | None, *, commit: bool = True) -> tuple[WorkspaceApiKeyModel, str]:
         prefix, raw_key = new_api_key()
         key = WorkspaceApiKeyModel(
             workspace_id=workspace_id,
@@ -27,17 +27,23 @@ class ApiKeyRepository:
             created_by_user_id=created_by_user_id,
         )
         self.db.add(key)
-        self.db.commit()
-        self.db.refresh(key)
+        if commit:
+            self.db.commit()
+            self.db.refresh(key)
+        else:
+            self.db.flush()
         return key, raw_key
 
     def get_key(self, workspace_id: str, key_id: str) -> WorkspaceApiKeyModel | None:
         stmt = select(WorkspaceApiKeyModel).where(WorkspaceApiKeyModel.workspace_id == workspace_id, WorkspaceApiKeyModel.id == key_id)
         return self.db.scalars(stmt).first()
 
-    def revoke_key(self, key: WorkspaceApiKeyModel) -> None:
+    def revoke_key(self, key: WorkspaceApiKeyModel, *, commit: bool = True) -> None:
         key.revoked_at = datetime.now(timezone.utc)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
     def authenticate(self, raw_key: str) -> WorkspaceApiKeyModel | None:
         parts = raw_key.split("_", 3)

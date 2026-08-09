@@ -101,6 +101,8 @@ State transitions and incident writes happen in one SQLAlchemy transaction. A pa
 
 Notification delivery is decoupled from alert evaluation. The evaluator writes pending delivery rows for attached channels and commits before enqueueing Celery tasks, so outbound email/webhook network latency is not part of the alert state-transition transaction. Delivery workers claim one row at a time, commit `delivering`, perform network I/O outside the claim transaction, then mark `delivered`, `pending`, or `failed`. Stale `delivering` rows are recovered after `NOTIFICATION_DELIVERY_LEASE_SECONDS`. The retry scanner uses indexed `workspace_id/status/next_retry_at` and `status/last_attempt_at` paths and avoids scanning delivered history.
 
+Audit logging is intentionally low-volume. It records security-sensitive and product mutations, not high-frequency telemetry ingestion, telemetry reads, chart refreshes or automatic alert evaluation ticks. Audit reads use bounded newest-first pagination with workspace/action/actor/resource/outcome indexes.
+
 The frontend alert panel polls rule and incident state at a modest interval. It does not evaluate alert conditions in the browser and does not create additional SSE connections.
 
 ## Auth And Tenancy Performance

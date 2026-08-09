@@ -65,7 +65,7 @@ class NotificationRepository:
     def get_channel(self, workspace_id: str, channel_id: str) -> NotificationChannelModel | None:
         return self.db.scalars(select(NotificationChannelModel).where(NotificationChannelModel.workspace_id == workspace_id, NotificationChannelModel.id == channel_id)).first()
 
-    def create_channel(self, workspace_id: str, payload: NotificationChannelCreate) -> NotificationChannelModel:
+    def create_channel(self, workspace_id: str, payload: NotificationChannelCreate, *, commit: bool = True) -> NotificationChannelModel:
         config: dict[str, Any]
         secret = None
         if payload.type == "email":
@@ -78,11 +78,14 @@ class NotificationRepository:
                 secret = encrypt_secret(payload.webhook_config.secret)
         channel = NotificationChannelModel(workspace_id=workspace_id, name=payload.name, type=payload.type, enabled=payload.enabled, config_json=_json(config), secret_encrypted=secret)
         self.db.add(channel)
-        self.db.commit()
-        self.db.refresh(channel)
+        if commit:
+            self.db.commit()
+            self.db.refresh(channel)
+        else:
+            self.db.flush()
         return channel
 
-    def update_channel(self, channel: NotificationChannelModel, payload: NotificationChannelPatch) -> NotificationChannelModel:
+    def update_channel(self, channel: NotificationChannelModel, payload: NotificationChannelPatch, *, commit: bool = True) -> NotificationChannelModel:
         data = payload.model_dump(exclude_unset=True)
         if "name" in data:
             channel.name = payload.name or channel.name
@@ -94,15 +97,21 @@ class NotificationRepository:
             channel.config_json = _json(payload.webhook_config.model_dump(by_alias=True, mode="json", exclude={"secret"}))
             if payload.webhook_config.secret:
                 channel.secret_encrypted = encrypt_secret(payload.webhook_config.secret)
-        self.db.commit()
-        self.db.refresh(channel)
+        if commit:
+            self.db.commit()
+            self.db.refresh(channel)
+        else:
+            self.db.flush()
         return channel
 
-    def delete_channel(self, channel: NotificationChannelModel) -> None:
+    def delete_channel(self, channel: NotificationChannelModel, *, commit: bool = True) -> None:
         self.db.delete(channel)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
-    def set_alert_channels(self, workspace_id: str, alert_rule_id: str, channel_ids: list[str]) -> list[str]:
+    def set_alert_channels(self, workspace_id: str, alert_rule_id: str, channel_ids: list[str], *, commit: bool = True) -> list[str]:
         valid_ids = set(self.db.scalars(select(NotificationChannelModel.id).where(NotificationChannelModel.workspace_id == workspace_id, NotificationChannelModel.id.in_(channel_ids))).all()) if channel_ids else set()
         if len(valid_ids) != len(set(channel_ids)):
             raise ValueError("One or more notification channels were not found")
@@ -113,7 +122,10 @@ class NotificationRepository:
         existing_ids = {link.channel_id for link in existing}
         for channel_id in valid_ids - existing_ids:
             self.db.add(AlertNotificationChannelModel(workspace_id=workspace_id, alert_rule_id=alert_rule_id, channel_id=channel_id))
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
         return sorted(valid_ids)
 
     def alert_channel_ids(self, workspace_id: str, alert_rule_id: str) -> list[str]:
@@ -155,7 +167,7 @@ class NotificationRepository:
         self.db.flush()
         return delivery
 
-    def create_test_delivery(self, workspace_id: str, channel: NotificationChannelModel) -> NotificationDeliveryModel:
+    def create_test_delivery(self, workspace_id: str, channel: NotificationChannelModel, *, commit: bool = True) -> NotificationDeliveryModel:
         delivery = NotificationDeliveryModel(
             workspace_id=workspace_id,
             alert_rule_id="test",
@@ -170,8 +182,11 @@ class NotificationRepository:
             attempt_count=0,
         )
         self.db.add(delivery)
-        self.db.commit()
-        self.db.refresh(delivery)
+        if commit:
+            self.db.commit()
+            self.db.refresh(delivery)
+        else:
+            self.db.flush()
         return delivery
 
     def list_deliveries(

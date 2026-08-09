@@ -271,6 +271,8 @@ The frontend Alerts panel supports rule create/edit/enable-disable/delete, manua
 
 Phase 9 adds workspace-scoped notification channels for alert delivery. Owners/admins can configure reusable email and generic webhook channels, attach them to alert rules, and inspect durable delivery history. Alert transitions create pending delivery rows in PostgreSQL and Celery workers deliver them asynchronously, with retry/backoff and idempotency on `(incident, channel, event)`. Webhooks support optional HMAC-SHA256 signing; webhook secrets are encrypted at rest and never returned by the API. SMTP settings are environment-driven for email delivery.
 
+Phase 10 adds workspace-scoped audit logs for security-sensitive and product mutations. Audit events are generated server-side, append-only through the API surface, bounded/paginated on read, and restricted to owner/admin roles. Metadata is sanitized recursively so passwords, tokens, API keys, webhook secrets, cookies, authorization headers and similar secret fields are redacted before persistence.
+
 ## Authentication And RBAC
 
 Workspace roles are ordered `viewer < member < admin < owner`. Viewers are read-only, members can edit dashboards and alerts, admins can also manage non-owner memberships, and owners have full workspace control. Final-owner demotion and removal are blocked. Frontend workspace selection is stored as a preference only; the backend validates membership on every scoped request using `Authorization` and `X-Workspace-Id`.

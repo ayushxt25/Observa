@@ -1,15 +1,17 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_workspace_role
+from app.core import audit_actions
 from app.db.session import get_db
 from app.models.auth import WorkspaceMembershipModel
 from app.repositories.alerts import AlertRepository
 from app.repositories.notifications import NotificationRepository
 from app.schemas.alerts import AlertEvaluationResponse, AlertListResponse, AlertRuleCreate, AlertRuleOut, AlertRulePatch, IncidentListResponse, IncidentOut, IncidentStatus
 from app.services.alerts import AlertEvaluationService
+from app.services.audit import AuditService, changed_fields
 
 router = APIRouter(tags=["alerts"])
 
@@ -60,10 +62,13 @@ def list_alerts(repo: Annotated[AlertRepository, Depends(get_alert_repository)],
 
 
 @router.post("/alerts", response_model=AlertRuleOut, status_code=status.HTTP_201_CREATED, summary="Create alert rule")
-def create_alert(payload: AlertRuleCreate, repo: Annotated[AlertRepository, Depends(get_alert_repository)], notifications: Annotated[NotificationRepository, Depends(get_notification_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertRuleOut:
-    rule = repo.create_rule(payload, membership.workspace_id)
+def create_alert(payload: AlertRuleCreate, request: Request, repo: Annotated[AlertRepository, Depends(get_alert_repository)], notifications: Annotated[NotificationRepository, Depends(get_notification_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertRuleOut:
+    rule = repo.create_rule(payload, membership.workspace_id, commit=False)
     if payload.notification_channel_ids:
-        notifications.set_alert_channels(membership.workspace_id, rule.id, payload.notification_channel_ids)
+        notifications.set_alert_channels(membership.workspace_id, rule.id, payload.notification_channel_ids, commit=False)
+    AuditService(repo.db).record_user(membership=membership, action=audit_actions.ALERT_CREATED, resource_type="alert_rule", resource_id=rule.id, request=request, metadata={"name": rule.name, "metric": rule.metric, "enabled": rule.enabled, "notificationChannelCount": len(payload.notification_channel_ids)}, commit=False)
+    repo.db.commit()
+    repo.db.refresh(rule)
     return alert_out(rule, notifications)
 
 
@@ -73,29 +78,46 @@ def get_alert(rule_id: str, repo: Annotated[AlertRepository, Depends(get_alert_r
 
 
 @router.patch("/alerts/{rule_id}", response_model=AlertRuleOut, summary="Update alert rule")
-def update_alert(rule_id: str, payload: AlertRulePatch, repo: Annotated[AlertRepository, Depends(get_alert_repository)], notifications: Annotated[NotificationRepository, Depends(get_notification_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertRuleOut:
+def update_alert(rule_id: str, payload: AlertRulePatch, request: Request, repo: Annotated[AlertRepository, Depends(get_alert_repository)], notifications: Annotated[NotificationRepository, Depends(get_notification_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertRuleOut:
     try:
-        rule = repo.update_rule(load_rule(repo, rule_id, membership.workspace_id), payload)
+        existing = load_rule(repo, rule_id, membership.workspace_id)
+        before = {"name": existing.name, "metric": existing.metric, "service": existing.service, "region": existing.region, "aggregation": existing.aggregation, "bucket": existing.bucket, "operator": existing.operator, "threshold": existing.threshold, "enabled": existing.enabled}
+        rule = repo.update_rule(existing, payload, commit=False)
         if payload.notification_channel_ids is not None:
-            notifications.set_alert_channels(membership.workspace_id, rule.id, payload.notification_channel_ids)
+            notifications.set_alert_channels(membership.workspace_id, rule.id, payload.notification_channel_ids, commit=False)
+        after = {"name": rule.name, "metric": rule.metric, "service": rule.service, "region": rule.region, "aggregation": rule.aggregation, "bucket": rule.bucket, "operator": rule.operator, "threshold": rule.threshold, "enabled": rule.enabled}
+        action = audit_actions.ALERT_UPDATED
+        if before["enabled"] is True and after["enabled"] is False:
+            action = audit_actions.ALERT_DISABLED
+        elif before["enabled"] is False and after["enabled"] is True:
+            action = audit_actions.ALERT_ENABLED
+        AuditService(repo.db).record_user(membership=membership, action=action, resource_type="alert_rule", resource_id=rule.id, request=request, metadata=changed_fields(before, after), commit=False)
+        repo.db.commit()
+        repo.db.refresh(rule)
         return alert_out(rule, notifications)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.delete("/alerts/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete alert rule")
-def delete_alert(rule_id: str, repo: Annotated[AlertRepository, Depends(get_alert_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> None:
+def delete_alert(rule_id: str, request: Request, repo: Annotated[AlertRepository, Depends(get_alert_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> None:
     try:
-        repo.delete_rule(load_rule(repo, rule_id, membership.workspace_id))
+        rule = load_rule(repo, rule_id, membership.workspace_id)
+        metadata = {"name": rule.name, "metric": rule.metric, "enabled": rule.enabled}
+        repo.delete_rule(rule, commit=False)
+        AuditService(repo.db).record_user(membership=membership, action=audit_actions.ALERT_DELETED, resource_type="alert_rule", resource_id=rule_id, request=request, metadata=metadata, commit=False)
+        repo.db.commit()
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post("/alerts/{rule_id}/evaluate", response_model=AlertEvaluationResponse, summary="Evaluate alert rule now")
-def evaluate_alert(rule_id: str, repo: Annotated[AlertRepository, Depends(get_alert_repository)], evaluator: Annotated[AlertEvaluationService, Depends(get_alert_evaluator)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertEvaluationResponse:
+def evaluate_alert(rule_id: str, request: Request, repo: Annotated[AlertRepository, Depends(get_alert_repository)], evaluator: Annotated[AlertEvaluationService, Depends(get_alert_evaluator)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertEvaluationResponse:
     load_rule(repo, rule_id, membership.workspace_id)
     try:
-        return evaluator.evaluate_rule(rule_id)
+        result = evaluator.evaluate_rule(rule_id)
+        AuditService(repo.db).record_user(membership=membership, action=audit_actions.ALERT_MANUAL_EVALUATED, resource_type="alert_rule", resource_id=rule_id, request=request, metadata={"triggered": result.triggered, "value": result.value, "incidentId": result.incident_id})
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

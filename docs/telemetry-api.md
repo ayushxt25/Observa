@@ -333,4 +333,17 @@ Delivery semantics are at-least-once. If a worker crashes after a receiver accep
 
 Delivery rows snapshot the channel name, type, config and encrypted webhook secret when the alert transition happens. Later channel edits or deletion do not change already-created delivery behavior. A stale `delivering` row is recovered by the retry scanner after `NOTIFICATION_DELIVERY_LEASE_SECONDS`.
 
+## Audit Events
+
+Audit events are generated server-side for workspace mutations and security-sensitive auth outcomes. There are no create, patch, or delete endpoints for normal users.
+
+Endpoints:
+
+- `GET /api/v1/audit-events`
+- `GET /api/v1/audit-events/{id}`
+
+Reads require owner/admin role in the active workspace. List filters include `actorUserId`, `actorType`, `action`, `resourceType`, `resourceId`, `outcome`, `start`, `end`, `cursor`, and `limit`. Results are newest-first, cursor-paginated, and capped at 200 rows per page.
+
+Audit metadata is recursively redacted before persistence. Passwords, password hashes, access tokens, refresh tokens, API keys, key hashes, webhook secrets, encrypted secret values, SMTP credentials, cookies, and authorization headers must not appear in stored metadata. Product mutation audit rows are mandatory and share the domain mutation transaction. Auth outcome audit rows are best-effort within the available workspace context; unknown-email login failures are not persisted because there is no workspace scope. Client IP currently comes from `request.client.host`; proxy-derived IP support requires explicit trusted-proxy configuration later. Audit logs are append-oriented application records, not a cryptographically immutable ledger; PostgreSQL administrators can still alter records.
+
 Current limitations: there are no Slack/PagerDuty integrations, acknowledgements, escalation, incident assignment, OAuth, password reset or billing flows.

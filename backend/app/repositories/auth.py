@@ -63,21 +63,27 @@ class AuthRepository:
     def get_workspace(self, workspace_id: str) -> WorkspaceModel | None:
         return self.db.get(WorkspaceModel, workspace_id)
 
-    def create_workspace(self, user: UserModel, name: str) -> WorkspaceModel:
+    def create_workspace(self, user: UserModel, name: str, *, commit: bool = True) -> WorkspaceModel:
         workspace = WorkspaceModel(name=name, slug=self.unique_slug(name))
         self.db.add(workspace)
         self.db.flush()
         self.db.add(WorkspaceMembershipModel(user_id=user.id, workspace_id=workspace.id, role="owner"))
-        self.db.commit()
-        self.db.refresh(workspace)
+        if commit:
+            self.db.commit()
+            self.db.refresh(workspace)
+        else:
+            self.db.flush()
         return workspace
 
-    def update_workspace(self, workspace: WorkspaceModel, name: str | None) -> WorkspaceModel:
+    def update_workspace(self, workspace: WorkspaceModel, name: str | None, *, commit: bool = True) -> WorkspaceModel:
         if name is not None:
             workspace.name = name
             workspace.slug = self.unique_slug(name)
-        self.db.commit()
-        self.db.refresh(workspace)
+        if commit:
+            self.db.commit()
+            self.db.refresh(workspace)
+        else:
+            self.db.flush()
         return workspace
 
     def list_members(self, workspace_id: str) -> list[WorkspaceMembershipModel]:
@@ -96,28 +102,40 @@ class AuthRepository:
         stmt = select(WorkspaceMembershipModel.id).where(WorkspaceMembershipModel.workspace_id == workspace_id).with_for_update()
         self.db.execute(stmt).all()
 
-    def add_member(self, workspace_id: str, user: UserModel, role: WorkspaceRole) -> WorkspaceMembershipModel:
+    def add_member(self, workspace_id: str, user: UserModel, role: WorkspaceRole, *, commit: bool = True) -> WorkspaceMembershipModel:
         existing = self.get_membership(user.id, workspace_id)
         if existing is not None:
             existing.role = role
-            self.db.commit()
-            self.db.refresh(existing)
+            if commit:
+                self.db.commit()
+                self.db.refresh(existing)
+            else:
+                self.db.flush()
             return existing
         membership = WorkspaceMembershipModel(user_id=user.id, workspace_id=workspace_id, role=role)
         self.db.add(membership)
-        self.db.commit()
-        self.db.refresh(membership)
+        if commit:
+            self.db.commit()
+            self.db.refresh(membership)
+        else:
+            self.db.flush()
         return membership
 
-    def update_member_role(self, membership: WorkspaceMembershipModel, role: WorkspaceRole) -> WorkspaceMembershipModel:
+    def update_member_role(self, membership: WorkspaceMembershipModel, role: WorkspaceRole, *, commit: bool = True) -> WorkspaceMembershipModel:
         membership.role = role
-        self.db.commit()
-        self.db.refresh(membership)
+        if commit:
+            self.db.commit()
+            self.db.refresh(membership)
+        else:
+            self.db.flush()
         return membership
 
-    def remove_member(self, membership: WorkspaceMembershipModel) -> None:
+    def remove_member(self, membership: WorkspaceMembershipModel, *, commit: bool = True) -> None:
         self.db.delete(membership)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
     def create_session(self, user: UserModel, refresh_days: int, user_agent: str | None = None) -> tuple[AuthSessionModel, str]:
         token = new_refresh_token()
@@ -158,10 +176,12 @@ class AuthRepository:
         self.db.commit()
         return session.user, replacement_token
 
-    def revoke_refresh(self, token: str) -> bool:
-        session = self.db.scalars(select(AuthSessionModel).where(AuthSessionModel.token_hash == hash_token(token))).first()
+    def revoke_refresh(self, token: str) -> UserModel | None:
+        session = self.db.scalars(
+            select(AuthSessionModel).options(joinedload(AuthSessionModel.user)).where(AuthSessionModel.token_hash == hash_token(token))
+        ).first()
         if session is None or session.revoked_at is not None:
-            return False
+            return None
         session.revoked_at = datetime.now(timezone.utc)
         self.db.commit()
-        return True
+        return session.user
