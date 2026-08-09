@@ -269,6 +269,8 @@ Alert rules are persisted in PostgreSQL and evaluated by Celery using indexed ti
 
 The frontend Alerts panel supports rule create/edit/enable-disable/delete, manual evaluation, and incident history polling. Dashboard, alert, incident and telemetry APIs are workspace-scoped with roles `owner`, `admin`, `member`, and `viewer`. Notifications, acknowledgements, Slack/email/PagerDuty integrations, OAuth, billing and enterprise identity are intentionally deferred.
 
+Phase 9 adds workspace-scoped notification channels for alert delivery. Owners/admins can configure reusable email and generic webhook channels, attach them to alert rules, and inspect durable delivery history. Alert transitions create pending delivery rows in PostgreSQL and Celery workers deliver them asynchronously, with retry/backoff and idempotency on `(incident, channel, event)`. Webhooks support optional HMAC-SHA256 signing; webhook secrets are encrypted at rest and never returned by the API. SMTP settings are environment-driven for email delivery.
+
 ## Authentication And RBAC
 
 Workspace roles are ordered `viewer < member < admin < owner`. Viewers are read-only, members can edit dashboards and alerts, admins can also manage non-owner memberships, and owners have full workspace control. Final-owner demotion and removal are blocked. Frontend workspace selection is stored as a preference only; the backend validates membership on every scoped request using `Authorization` and `X-Workspace-Id`.

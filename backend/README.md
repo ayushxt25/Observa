@@ -150,6 +150,12 @@ Workspace-scoped APIs require `Authorization: Bearer <accessToken>` and usually 
 
 Phase 8 also scopes telemetry reads, services, metrics and SSE to the active workspace. Workspace API keys are stored only as hashes, shown once on creation, revocable by owner/admin, and protected by a lightweight per-key ingestion rate limit.
 
+Phase 9 adds alert notification delivery. Notification channels are workspace-scoped and currently support `email` and generic `webhook`. Alert rules can attach multiple channels. When an incident opens or resolves, alert evaluation writes durable pending delivery rows and then queues Celery delivery tasks after commit. A retry scanner (`notifications.retry_due`) requeues pending retryable deliveries and recovers stale `delivering` rows after `NOTIFICATION_DELIVERY_LEASE_SECONDS`, so Redis/Celery outages do not lose delivery intent.
+
+Webhook delivery sends JSON with alert, incident, metric, value and threshold context plus a stable `deliveryId`. If a signing secret is configured, the worker signs `timestamp + "." + rawBody` with HMAC-SHA256 and sends `X-Observa-Delivery-Id`, `X-Observa-Signature: sha256=<hex>` and `X-Observa-Timestamp`. Delivery is at-least-once; webhook consumers should deduplicate by delivery id. Secrets are encrypted at rest with `NOTIFICATION_SECRET_KEY` and are never returned in API responses. Production SSRF protection blocks non-HTTPS and private/loopback/link-local destinations; Docker development explicitly sets `WEBHOOK_ALLOW_PRIVATE_NETWORKS=true` for local receivers. DNS is validated before request and redirects are disabled; DNS rebinding between validation and the HTTP client's connection remains a documented residual risk.
+
+Email delivery uses SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS`). Missing SMTP configuration leaves delivery rows retryable instead of dropping them.
+
 ## Tests
 
 ```powershell

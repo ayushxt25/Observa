@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertsApi } from "@/lib/api/alerts";
+import { NotificationsApi } from "@/lib/api/notifications";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { validateAlertDraft } from "@/lib/alerts/validation";
 import type { AlertAggregation, AlertBucket, AlertOperator, AlertRule, AlertRuleDraft, Incident } from "@/lib/alerts/types";
+import type { NotificationChannel, NotificationChannelDraft, NotificationDelivery } from "@/lib/notifications/types";
 import type { MetricName, Region, ServiceId } from "@/lib/types";
 
 const metrics: MetricName[] = ["latency", "throughput", "cpuUsage", "memoryUsage", "errorRate", "payloadSize"];
@@ -23,6 +25,15 @@ const initialDraft: AlertRuleDraft = {
   evaluationIntervalSeconds: 60,
   cooldownSeconds: 300,
   enabled: true,
+  notificationChannelIds: [],
+};
+
+const initialChannelDraft: NotificationChannelDraft = {
+  name: "Ops email",
+  type: "email",
+  enabled: true,
+  recipients: "ops@example.com",
+  targetUrl: "https://example.com/observa",
 };
 
 function formatDate(value?: string): string {
@@ -31,14 +42,20 @@ function formatDate(value?: string): string {
 
 export function AlertsPanel() {
   const api = useMemo(() => new AlertsApi(), []);
+  const notificationsApi = useMemo(() => new NotificationsApi(), []);
   const auth = useAuth();
   const activeWorkspaceId = auth.activeWorkspace?.id;
   const [alerts, setAlerts] = useState<AlertRule[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [channels, setChannels] = useState<NotificationChannel[]>([]);
+  const [deliveries, setDeliveries] = useState<NotificationDelivery[]>([]);
   const [draft, setDraft] = useState<AlertRuleDraft>(initialDraft);
+  const [channelDraft, setChannelDraft] = useState<NotificationChannelDraft>(initialChannelDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const canEdit = auth.activeWorkspace?.role !== "viewer";
+  const canManageChannels = auth.activeWorkspace?.role === "owner" || auth.activeWorkspace?.role === "admin";
   const latestRequestRef = useRef(0);
   const pollingInFlightRef = useRef(false);
 
@@ -48,10 +65,12 @@ export function AlertsPanel() {
     const requestId = latestRequestRef.current + 1;
     latestRequestRef.current = requestId;
     try {
-      const [rules, history] = await Promise.all([api.listAlerts(signal), api.listIncidents(signal)]);
+      const [rules, history, channelList, deliveryList] = await Promise.all([api.listAlerts(signal), api.listIncidents(signal), notificationsApi.listChannels(signal), notificationsApi.listDeliveries(signal)]);
       if (signal?.aborted || requestId !== latestRequestRef.current) return;
       setAlerts(rules);
       setIncidents(history);
+      setChannels(channelList);
+      setDeliveries(deliveryList);
       setMessage(null);
     } catch (error) {
       if (signal?.aborted || requestId !== latestRequestRef.current) return;
@@ -59,13 +78,15 @@ export function AlertsPanel() {
     } finally {
       pollingInFlightRef.current = false;
     }
-  }, [api]);
+  }, [api, notificationsApi]);
 
   useEffect(() => {
     const controller = new AbortController();
     const initial = window.setTimeout(() => {
       setAlerts([]);
       setIncidents([]);
+      setChannels([]);
+      setDeliveries([]);
       void reload(controller.signal);
     }, 0);
     const timer = window.setInterval(() => void reload(controller.signal, true), 10_000);
@@ -108,12 +129,49 @@ export function AlertsPanel() {
       service: rule.service,
       region: rule.region,
       enabled: rule.enabled,
+      notificationChannelIds: rule.notificationChannelIds,
+    });
+  };
+
+  const saveChannel = async () => {
+    if (!channelDraft.name.trim()) {
+      setMessage("Channel name is required");
+      return;
+    }
+    try {
+      if (editingChannelId) await notificationsApi.updateChannel(editingChannelId, channelDraft);
+      else await notificationsApi.createChannel(channelDraft);
+      setEditingChannelId(null);
+      setChannelDraft(initialChannelDraft);
+      await reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Channel save failed");
+    }
+  };
+
+  const editChannel = (channel: NotificationChannel) => {
+    setEditingChannelId(channel.id);
+    setChannelDraft({
+      name: channel.name,
+      type: channel.type,
+      enabled: channel.enabled,
+      recipients: channel.emailConfig?.recipients.join(", ") ?? "",
+      targetUrl: channel.webhookUrl ?? "",
+    });
+  };
+
+  const toggleChannelSelection = (channelId: string) => {
+    setDraft((current) => {
+      const selected = new Set(current.notificationChannelIds ?? []);
+      if (selected.has(channelId)) selected.delete(channelId);
+      else selected.add(channelId);
+      return { ...current, notificationChannelIds: Array.from(selected) };
     });
   };
 
   return (
     <section className="panel alerts-panel">
-      <div className="section-heading"><h2>Alerts</h2><span>{message ?? `${alerts.length} rules / ${incidents.length} incidents`}</span></div>
+      <div className="section-heading"><h2>Alerts</h2><span>{message ?? `${alerts.length} rules / ${incidents.length} incidents / ${deliveries.length} deliveries`}</span></div>
       <div className="alert-form">
         <label>Name<input aria-label="Alert name" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
         <label>Metric<select aria-label="Alert metric" value={draft.metric} onChange={(event) => setDraft((current) => ({ ...current, metric: event.target.value as MetricName }))}>{metrics.map((metric) => <option key={metric} value={metric}>{metric}</option>)}</select></label>
@@ -126,14 +184,44 @@ export function AlertsPanel() {
         <label>Window<input aria-label="Alert evaluation window" type="number" value={draft.evaluationWindowSeconds} onChange={(event) => setDraft((current) => ({ ...current, evaluationWindowSeconds: Number(event.target.value) }))} /></label>
         <label>Interval<input aria-label="Alert evaluation interval" type="number" value={draft.evaluationIntervalSeconds} onChange={(event) => setDraft((current) => ({ ...current, evaluationIntervalSeconds: Number(event.target.value) }))} /></label>
         <label>Cooldown<input aria-label="Alert cooldown" type="number" value={draft.cooldownSeconds} onChange={(event) => setDraft((current) => ({ ...current, cooldownSeconds: Number(event.target.value) }))} /></label>
+        <fieldset className="channel-picker">
+          <legend>Notify</legend>
+          {channels.length === 0 ? <span>No channels</span> : channels.map((channel) => (
+            <label key={channel.id}><input type="checkbox" checked={(draft.notificationChannelIds ?? []).includes(channel.id)} onChange={() => toggleChannelSelection(channel.id)} />{channel.name}</label>
+          ))}
+        </fieldset>
         <button type="button" disabled={!canEdit} onClick={() => void save()}>{editingId ? "Save alert" : "Create alert"}</button>
+      </div>
+      <div className="notification-panel">
+        <div className="section-heading"><h3>Notification channels</h3><span>{channels.length} configured</span></div>
+        <div className="alert-form">
+          <label>Name<input aria-label="Notification channel name" value={channelDraft.name} onChange={(event) => setChannelDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+          <label>Type<select aria-label="Notification channel type" value={channelDraft.type} onChange={(event) => setChannelDraft((current) => ({ ...current, type: event.target.value as NotificationChannelDraft["type"] }))}><option value="email">email</option><option value="webhook">webhook</option></select></label>
+          {channelDraft.type === "email" ? <label>Recipients<input aria-label="Email recipients" value={channelDraft.recipients} onChange={(event) => setChannelDraft((current) => ({ ...current, recipients: event.target.value }))} /></label> : <><label>Webhook URL<input aria-label="Webhook URL" value={channelDraft.targetUrl} onChange={(event) => setChannelDraft((current) => ({ ...current, targetUrl: event.target.value }))} /></label><label>Secret<input aria-label="Webhook secret" type="password" value={channelDraft.webhookSecret ?? ""} onChange={(event) => setChannelDraft((current) => ({ ...current, webhookSecret: event.target.value || undefined }))} /></label></>}
+          <label>Enabled<select aria-label="Notification channel enabled" value={String(channelDraft.enabled)} onChange={(event) => setChannelDraft((current) => ({ ...current, enabled: event.target.value === "true" }))}><option value="true">enabled</option><option value="false">disabled</option></select></label>
+          <button type="button" disabled={!canManageChannels} onClick={() => void saveChannel()}>{editingChannelId ? "Save channel" : "Create channel"}</button>
+        </div>
+        <div className="alert-list">
+          {channels.length === 0 ? <p>No notification channels yet.</p> : channels.map((channel) => (
+            <article className="alert-row" key={channel.id}>
+              <strong>{channel.name}</strong>
+              <span>{channel.type} / {channel.enabled ? "enabled" : "disabled"}{channel.hasSecret ? " / signed" : ""}</span>
+              <span>{channel.type === "email" ? channel.emailConfig?.recipients.join(", ") : channel.webhookUrl}</span>
+              <div>
+                <button type="button" disabled={!canManageChannels} onClick={() => editChannel(channel)}>Edit</button>
+                <button type="button" disabled={!canManageChannels} onClick={() => void notificationsApi.testChannel(channel.id).then(() => reload()).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Test failed"))}>Test</button>
+                <button type="button" disabled={!canManageChannels} className="danger" onClick={() => void notificationsApi.deleteChannel(channel.id).then(() => reload()).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Channel delete failed"))}>Delete</button>
+              </div>
+            </article>
+          ))}
+        </div>
       </div>
       <div className="alerts-grid">
         <div className="alert-list">
           {alerts.length === 0 ? <p>No alert rules yet.</p> : alerts.map((rule) => (
             <article className={`alert-row ${rule.state}`} key={rule.id}>
               <strong>{rule.name}</strong>
-              <span>{rule.metric} {rule.operator} {rule.threshold} / {rule.state}</span>
+              <span>{rule.metric} {rule.operator} {rule.threshold} / {rule.state} / {(rule.notificationChannelIds ?? []).length} channels</span>
               <span>Evaluated {formatDate(rule.lastEvaluatedAt)}</span>
               <div>
                 <button type="button" disabled={!canEdit} onClick={() => edit(rule)}>Edit</button>
@@ -150,6 +238,15 @@ export function AlertsPanel() {
               <strong>{incident.ruleName ?? "Alert"}</strong>
               <span>{incident.status}: {incident.triggeringValue.toFixed(2)} / {incident.threshold}</span>
               <span>{formatDate(incident.openedAt)} {"->"} {formatDate(incident.resolvedAt)}</span>
+            </article>
+          ))}
+        </div>
+        <div className="incident-list">
+          {deliveries.length === 0 ? <p>No notification deliveries recorded.</p> : deliveries.map((delivery) => (
+            <article className={`incident-row ${delivery.status}`} key={delivery.id}>
+              <strong>{delivery.channelName}</strong>
+              <span>{delivery.eventType}: {delivery.status} / {delivery.attemptCount} attempts</span>
+              <span>{delivery.errorSummary ?? formatDate(delivery.deliveredAt ?? delivery.createdAt)}</span>
             </article>
           ))}
         </div>

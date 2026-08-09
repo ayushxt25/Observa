@@ -91,13 +91,15 @@ Phase 5 stores dashboard and widget configuration in PostgreSQL while keeping hi
 
 Widget rendering uses a central renderer boundary that maps widget config to existing chart inputs. Short live windows are derived from retained events in the external store. Historical telemetry and backend latency aggregation remain available through the HTTP API. A lightweight query-cache utility provides stable metric query keys and in-flight request deduplication for future backend-backed widget queries without creating a large client cache.
 
-Thresholds are semantic frontend evaluation rules: `normal`, `warning`, or `critical`. Styling consumes those states; there is no background alert worker or notification system in this phase.
+Thresholds are semantic frontend evaluation rules: `normal`, `warning`, or `critical`. Styling consumes those states.
 
 ## Alert Evaluation Strategy
 
 Phase 6 alert rules are evaluated server-side by Celery. Beat schedules one periodic scan task every 5 seconds by default; rule evaluation intervals have a 5-second minimum and are respected by selecting only enabled rules whose interval has elapsed. The worker evaluates each selected rule through indexed PostgreSQL time-window metric queries. The evaluator does not scan the entire telemetry table: each rule uses service/region/time filters and the existing metric aggregation path.
 
 State transitions and incident writes happen in one SQLAlchemy transaction. A partial PostgreSQL unique index prevents more than one active `firing` incident per rule, while service logic also checks the active incident before creating one. If evaluation fails, the transaction rolls back and the next scheduled scan can retry. Redis/Celery failure pauses alert evaluation but does not stop telemetry ingestion, historical HTTP queries, or SSE delivery.
+
+Notification delivery is decoupled from alert evaluation. The evaluator writes pending delivery rows for attached channels and commits before enqueueing Celery tasks, so outbound email/webhook network latency is not part of the alert state-transition transaction. Delivery workers claim one row at a time, commit `delivering`, perform network I/O outside the claim transaction, then mark `delivered`, `pending`, or `failed`. Stale `delivering` rows are recovered after `NOTIFICATION_DELIVERY_LEASE_SECONDS`. The retry scanner uses indexed `workspace_id/status/next_retry_at` and `status/last_attempt_at` paths and avoids scanning delivered history.
 
 The frontend alert panel polls rule and incident state at a modest interval. It does not evaluate alert conditions in the browser and does not create additional SSE connections.
 

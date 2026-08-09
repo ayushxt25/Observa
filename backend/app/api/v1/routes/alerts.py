@@ -7,6 +7,7 @@ from app.api.deps import require_workspace_role
 from app.db.session import get_db
 from app.models.auth import WorkspaceMembershipModel
 from app.repositories.alerts import AlertRepository
+from app.repositories.notifications import NotificationRepository
 from app.schemas.alerts import AlertEvaluationResponse, AlertListResponse, AlertRuleCreate, AlertRuleOut, AlertRulePatch, IncidentListResponse, IncidentOut, IncidentStatus
 from app.services.alerts import AlertEvaluationService
 
@@ -15,6 +16,10 @@ router = APIRouter(tags=["alerts"])
 
 def get_alert_repository(db: Annotated[Session, Depends(get_db)]) -> AlertRepository:
     return AlertRepository(db)
+
+
+def get_notification_repository(db: Annotated[Session, Depends(get_db)]) -> NotificationRepository:
+    return NotificationRepository(db)
 
 
 def get_alert_evaluator(db: Annotated[Session, Depends(get_db)]) -> AlertEvaluationService:
@@ -45,25 +50,35 @@ def incident_out(incident) -> IncidentOut:
     )
 
 
+def alert_out(rule, notifications: NotificationRepository) -> AlertRuleOut:
+    return AlertRuleOut.model_validate(rule).model_copy(update={"notification_channel_ids": notifications.alert_channel_ids(rule.workspace_id, rule.id)})
+
+
 @router.get("/alerts", response_model=AlertListResponse, summary="List alert rules")
-def list_alerts(repo: Annotated[AlertRepository, Depends(get_alert_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))]) -> AlertListResponse:
-    return AlertListResponse(alerts=repo.list_rules(membership.workspace_id))
+def list_alerts(repo: Annotated[AlertRepository, Depends(get_alert_repository)], notifications: Annotated[NotificationRepository, Depends(get_notification_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))]) -> AlertListResponse:
+    return AlertListResponse(alerts=[alert_out(rule, notifications) for rule in repo.list_rules(membership.workspace_id)])
 
 
 @router.post("/alerts", response_model=AlertRuleOut, status_code=status.HTTP_201_CREATED, summary="Create alert rule")
-def create_alert(payload: AlertRuleCreate, repo: Annotated[AlertRepository, Depends(get_alert_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertRuleOut:
-    return repo.create_rule(payload, membership.workspace_id)
+def create_alert(payload: AlertRuleCreate, repo: Annotated[AlertRepository, Depends(get_alert_repository)], notifications: Annotated[NotificationRepository, Depends(get_notification_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertRuleOut:
+    rule = repo.create_rule(payload, membership.workspace_id)
+    if payload.notification_channel_ids:
+        notifications.set_alert_channels(membership.workspace_id, rule.id, payload.notification_channel_ids)
+    return alert_out(rule, notifications)
 
 
 @router.get("/alerts/{rule_id}", response_model=AlertRuleOut, summary="Get alert rule")
-def get_alert(rule_id: str, repo: Annotated[AlertRepository, Depends(get_alert_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))]) -> AlertRuleOut:
-    return load_rule(repo, rule_id, membership.workspace_id)
+def get_alert(rule_id: str, repo: Annotated[AlertRepository, Depends(get_alert_repository)], notifications: Annotated[NotificationRepository, Depends(get_notification_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))]) -> AlertRuleOut:
+    return alert_out(load_rule(repo, rule_id, membership.workspace_id), notifications)
 
 
 @router.patch("/alerts/{rule_id}", response_model=AlertRuleOut, summary="Update alert rule")
-def update_alert(rule_id: str, payload: AlertRulePatch, repo: Annotated[AlertRepository, Depends(get_alert_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertRuleOut:
+def update_alert(rule_id: str, payload: AlertRulePatch, repo: Annotated[AlertRepository, Depends(get_alert_repository)], notifications: Annotated[NotificationRepository, Depends(get_notification_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("member"))]) -> AlertRuleOut:
     try:
-        return repo.update_rule(load_rule(repo, rule_id, membership.workspace_id), payload)
+        rule = repo.update_rule(load_rule(repo, rule_id, membership.workspace_id), payload)
+        if payload.notification_channel_ids is not None:
+            notifications.set_alert_channels(membership.workspace_id, rule.id, payload.notification_channel_ids)
+        return alert_out(rule, notifications)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 

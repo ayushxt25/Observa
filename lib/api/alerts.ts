@@ -6,7 +6,7 @@ interface AlertListDto { alerts: AlertRule[] }
 interface IncidentListDto { incidents: Incident[] }
 
 export function mapAlert(input: AlertRule): AlertRule {
-  return { ...input, description: input.description ?? undefined, service: input.service ?? undefined, region: input.region ?? undefined, lastEvaluatedAt: input.lastEvaluatedAt ?? undefined, lastTriggeredAt: input.lastTriggeredAt ?? undefined };
+  return { ...input, description: input.description ?? undefined, service: input.service ?? undefined, region: input.region ?? undefined, lastEvaluatedAt: input.lastEvaluatedAt ?? undefined, lastTriggeredAt: input.lastTriggeredAt ?? undefined, notificationChannelIds: input.notificationChannelIds ?? [] };
 }
 
 export function mapIncident(input: Incident): Incident {

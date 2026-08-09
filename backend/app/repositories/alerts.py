@@ -26,14 +26,14 @@ class AlertRepository:
         return self.db.scalars(stmt).first()
 
     def create_rule(self, payload: AlertRuleCreate, workspace_id: str) -> AlertRuleModel:
-        rule = AlertRuleModel(**payload.model_dump(), workspace_id=workspace_id)
+        rule = AlertRuleModel(**payload.model_dump(exclude={"notification_channel_ids"}), workspace_id=workspace_id)
         self.db.add(rule)
         self.db.commit()
         self.db.refresh(rule)
         return rule
 
     def update_rule(self, rule: AlertRuleModel, payload: AlertRulePatch) -> AlertRuleModel:
-        data = payload.model_dump(exclude_unset=True)
+        data = payload.model_dump(exclude_unset=True, exclude={"notification_channel_ids"})
         bucket = data.get("bucket", rule.bucket)
         window = data.get("evaluation_window_seconds", rule.evaluation_window_seconds)
         self._validate_bucket_window(bucket, window)

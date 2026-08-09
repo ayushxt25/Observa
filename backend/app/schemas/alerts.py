@@ -27,6 +27,7 @@ class AlertRuleBase(ApiModel):
     evaluation_interval_seconds: int = Field(default=60, ge=MIN_EVALUATION_INTERVAL_SECONDS, le=86_400)
     cooldown_seconds: int = Field(default=300, ge=0, le=86_400)
     enabled: bool = True
+    notification_channel_ids: list[str] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def valid_bucket_window(self) -> "AlertRuleBase":
@@ -57,6 +58,7 @@ class AlertRulePatch(ApiModel):
     evaluation_interval_seconds: int | None = Field(default=None, ge=MIN_EVALUATION_INTERVAL_SECONDS, le=86_400)
     cooldown_seconds: int | None = Field(default=None, ge=0, le=86_400)
     enabled: bool | None = None
+    notification_channel_ids: list[str] | None = Field(default=None, max_length=20)
 
 
 class AlertRuleOut(AlertRuleBase):

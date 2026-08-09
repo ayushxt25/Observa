@@ -21,6 +21,7 @@ export interface AlertRule {
   evaluationIntervalSeconds: number;
   cooldownSeconds: number;
   enabled: boolean;
+  notificationChannelIds: string[];
   state: AlertState;
   lastEvaluatedAt?: string;
   lastTriggeredAt?: string;
@@ -39,6 +40,7 @@ export interface AlertRuleDraft {
   service?: ServiceId;
   region?: Region;
   enabled: boolean;
+  notificationChannelIds?: string[];
 }
 
 export interface Incident {

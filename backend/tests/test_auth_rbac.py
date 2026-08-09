@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.deps import get_auth_repository
 from app.api.deps import get_api_key_repository
 from app.api.v1.routes import auth as auth_routes
-from app.api.v1.routes.alerts import get_alert_repository
+from app.api.v1.routes.alerts import get_alert_repository, get_notification_repository
 from app.api.v1.routes.dashboards import get_dashboard_repository
 from app.api.v1.routes.telemetry import get_ingestion_service
 from app.db.base import Base
@@ -20,6 +20,7 @@ from app.repositories.auth import AuthRepository
 from app.repositories.alerts import AlertRepository
 from app.repositories.api_keys import ApiKeyRepository
 from app.repositories.dashboards import DashboardRepository
+from app.repositories.notifications import NotificationRepository
 from app.schemas.telemetry import IngestionResponse
 
 
@@ -35,6 +36,7 @@ def auth_client() -> Generator[tuple[TestClient, Session], None, None]:
     app.dependency_overrides[get_api_key_repository] = lambda: ApiKeyRepository(db)
     app.dependency_overrides[get_dashboard_repository] = lambda: DashboardRepository(db)
     app.dependency_overrides[get_alert_repository] = lambda: AlertRepository(db)
+    app.dependency_overrides[get_notification_repository] = lambda: NotificationRepository(db)
     with TestClient(app) as client:
         yield client, db
     auth_routes.check_auth_rate_limit = original_rate_limit

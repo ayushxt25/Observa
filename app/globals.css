@@ -445,9 +445,38 @@ input:disabled {
   margin-bottom: 12px;
 }
 
+.notification-panel {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+
+.channel-picker {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.channel-picker legend {
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding: 0 4px;
+}
+
+.channel-picker label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
 .alerts-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
 }
 

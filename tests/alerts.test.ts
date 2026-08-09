@@ -32,6 +32,7 @@ describe("alert DTO mapping", () => {
       ...draft,
       state: "normal",
       description: undefined,
+      notificationChannelIds: [],
     });
     expect(alert.service).toBeUndefined();
     const incident = mapIncident({

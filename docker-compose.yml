@@ -40,6 +40,13 @@ services:
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002,https://performance-dashboard-rose.vercel.app
       TELEMETRY_STREAM_MAXLEN: 100000
       ALERT_SCAN_INTERVAL_SECONDS: 5
+      NOTIFICATION_SECRET_KEY: dev-docker-notification-secret
+      NOTIFICATION_RETRY_SCAN_INTERVAL_SECONDS: 15
+      NOTIFICATION_DELIVERY_LEASE_SECONDS: 120
+      WEBHOOK_ALLOW_PRIVATE_NETWORKS: true
+      SMTP_HOST: host.docker.internal
+      SMTP_PORT: 2525
+      SMTP_TLS: false
       JWT_SECRET_KEY: dev-docker-change-me
       COOKIE_SECURE: false
       COOKIE_SAMESITE: lax
@@ -65,6 +72,13 @@ services:
       DATABASE_URL: postgresql+psycopg://observa:observa@postgres:5432/observa
       REDIS_URL: redis://redis:6379/0
       ALERT_SCAN_INTERVAL_SECONDS: 5
+      NOTIFICATION_SECRET_KEY: dev-docker-notification-secret
+      NOTIFICATION_RETRY_SCAN_INTERVAL_SECONDS: 15
+      NOTIFICATION_DELIVERY_LEASE_SECONDS: 120
+      WEBHOOK_ALLOW_PRIVATE_NETWORKS: true
+      SMTP_HOST: host.docker.internal
+      SMTP_PORT: 2525
+      SMTP_TLS: false
       JWT_SECRET_KEY: dev-docker-change-me
     depends_on:
       postgres:
@@ -84,6 +98,13 @@ services:
       DATABASE_URL: postgresql+psycopg://observa:observa@postgres:5432/observa
       REDIS_URL: redis://redis:6379/0
       ALERT_SCAN_INTERVAL_SECONDS: 5
+      NOTIFICATION_SECRET_KEY: dev-docker-notification-secret
+      NOTIFICATION_RETRY_SCAN_INTERVAL_SECONDS: 15
+      NOTIFICATION_DELIVERY_LEASE_SECONDS: 120
+      WEBHOOK_ALLOW_PRIVATE_NETWORKS: true
+      SMTP_HOST: host.docker.internal
+      SMTP_PORT: 2525
+      SMTP_TLS: false
       JWT_SECRET_KEY: dev-docker-change-me
     depends_on:
       redis:

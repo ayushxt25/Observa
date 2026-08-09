@@ -5,9 +5,11 @@ import time
 from sqlalchemy.orm import Session
 
 from app.repositories.alerts import AlertRepository
+from app.repositories.notifications import NotificationRepository
 from app.repositories.telemetry import TelemetryRepository
 from app.schemas.alerts import AlertEvaluationResponse
 from app.schemas.metrics import MetricQueryParams
+from app.services.notifications import NotificationDeliveryService
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,7 @@ class AlertEvaluationService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.alerts = AlertRepository(db)
+        self.notifications = NotificationRepository(db)
         self.telemetry = TelemetryRepository(db)
 
     def evaluate_rule(self, rule_id: str, now: datetime | None = None) -> AlertEvaluationResponse:
@@ -41,6 +44,7 @@ class AlertEvaluationService:
             value = self._read_value(rule, current)
             triggered = value is not None and compare_value(value, rule.operator, rule.threshold)
             incident_id = None
+            delivery_ids: list[str] = []
             active = self.alerts.active_incident(rule.id, for_update=True)
             rule.last_evaluated_at = current
             if triggered:
@@ -50,6 +54,10 @@ class AlertEvaluationService:
                     rule.last_triggered_at = current
                     self.db.flush()
                     incident_id = incident.id
+                    for channel in self.notifications.enabled_channels_for_alert(rule):
+                        delivery = self.notifications.create_delivery(incident, channel, "firing")
+                        if delivery is not None:
+                            delivery_ids.append(delivery.id)
                     logger.info("alert_transition_firing rule_id=%s incident_id=%s value=%s", rule.id, incident.id, value)
                 elif active is not None:
                     incident_id = active.id
@@ -58,8 +66,15 @@ class AlertEvaluationService:
                 if active is not None:
                     active.status = "resolved"
                     active.resolved_at = current
+                    for channel in self.notifications.enabled_channels_for_alert(rule):
+                        delivery = self.notifications.create_delivery(active, channel, "resolved")
+                        if delivery is not None:
+                            delivery_ids.append(delivery.id)
                     logger.info("alert_transition_resolved rule_id=%s incident_id=%s", rule.id, active.id)
             self.db.commit()
+            delivery_service = NotificationDeliveryService(self.db)
+            for delivery_id in delivery_ids:
+                delivery_service.enqueue_delivery(delivery_id)
             self.db.refresh(rule)
             logger.info("alert_evaluation_completed rule_id=%s duration_ms=%.3f", rule.id, (time.perf_counter() - started) * 1000)
             return AlertEvaluationResponse(alert=rule, value=value, triggered=triggered, incident_id=incident_id)

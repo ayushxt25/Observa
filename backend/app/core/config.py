@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,6 +33,27 @@ class Settings(BaseSettings):
     auth_rate_limit_login: int = Field(default=20, ge=1, le=1000)
     auth_rate_limit_refresh: int = Field(default=60, ge=1, le=5000)
     ingestion_rate_limit_per_minute: int = Field(default=600, ge=1, le=100_000)
+    notification_secret_key: str = "dev-notification-secret-change-me"
+    notification_max_attempts: int = Field(default=5, ge=1, le=20)
+    notification_retry_scan_interval_seconds: int = Field(default=15, ge=1, le=3600)
+    notification_delivery_lease_seconds: int = Field(default=120, ge=10, le=3600)
+    notification_test_rate_limit_per_minute: int = Field(default=20, ge=1, le=1000)
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str = "alerts@observa.local"
+    smtp_tls: bool = True
+    webhook_allow_private_networks: bool = False
+    webhook_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+
+    @model_validator(mode="after")
+    def production_secrets_are_explicit(self) -> "Settings":
+        if self.app_env == "production" and (
+            self.notification_secret_key.startswith("dev-") or len(self.notification_secret_key) < 32
+        ):
+            raise ValueError("NOTIFICATION_SECRET_KEY must be explicitly configured in production")
+        return self
 
     @property
     def allowed_origins(self) -> list[str]:

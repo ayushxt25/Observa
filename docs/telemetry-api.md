@@ -280,4 +280,57 @@ State machine:
 - If a firing rule clears, the active incident is resolved.
 - Cooldown prevents immediate reopen side effects after resolution; it does not hide an already-firing state.
 
-Current limitations: there are no notifications, acknowledgements, escalation, incident assignment, OAuth, password reset or billing flows.
+## Notification Channels And Deliveries
+
+Notification channels are workspace-scoped and reusable across alert rules.
+
+Endpoints:
+
+- `GET|POST /api/v1/notification-channels`
+- `GET|PATCH|DELETE /api/v1/notification-channels/{id}`
+- `POST /api/v1/notification-channels/{id}/test`
+- `PUT /api/v1/alerts/{id}/notification-channels`
+- `GET /api/v1/notification-deliveries`
+- `GET /api/v1/notification-deliveries/{id}`
+
+Supported channel types are `email` and `webhook`. Webhook responses redact secrets and expose only `hasSecret`. Email channels store validated recipients. Webhook channels store `targetUrl`, optional label, and an encrypted signing secret.
+
+Webhook payloads include:
+
+```json
+{
+  "schemaVersion": "2026-08-09",
+  "deliveryId": "delivery-id",
+  "eventType": "firing",
+  "workspaceId": "workspace-id",
+  "alertRuleId": "alert-id",
+  "alertName": "High latency",
+  "incidentId": "incident-id",
+  "incidentStatus": "firing",
+  "metric": "latency",
+  "triggeringValue": 250.5,
+  "threshold": 200,
+  "operator": ">=",
+  "service": "api-gateway",
+  "region": "us-east",
+  "openedAt": "2026-08-09T00:00:00Z",
+  "resolvedAt": null,
+  "timestamp": "2026-08-09T00:00:01Z"
+}
+```
+
+If a webhook secret is configured, the raw request body is signed with HMAC-SHA256 using:
+
+```text
+X-Observa-Timestamp: <unix-seconds>
+X-Observa-Delivery-Id: <notification-delivery-id>
+X-Observa-Signature: sha256=<hex-hmac(timestamp + "." + raw-body)>
+```
+
+Delivery states are `pending`, `delivering`, `delivered`, and `failed`. Retryable webhook failures are network/timeouts, HTTP `408`, `429`, and `5xx`; most `4xx` responses are terminal. Retries use bounded exponential backoff and are scanned by Celery. Delivery idempotency is enforced by `(incidentId, channelId, eventType)`.
+
+Delivery semantics are at-least-once. If a worker crashes after a receiver accepts a webhook but before Observa marks the row delivered, Observa may retry. Consumers should deduplicate using `deliveryId` or `X-Observa-Delivery-Id`. Email receivers may receive duplicates in the same crash window.
+
+Delivery rows snapshot the channel name, type, config and encrypted webhook secret when the alert transition happens. Later channel edits or deletion do not change already-created delivery behavior. A stale `delivering` row is recovered by the retry scanner after `NOTIFICATION_DELIVERY_LEASE_SECONDS`.
+
+Current limitations: there are no Slack/PagerDuty integrations, acknowledgements, escalation, incident assignment, OAuth, password reset or billing flows.
