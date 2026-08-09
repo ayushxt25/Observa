@@ -333,6 +333,34 @@ Delivery semantics are at-least-once. If a worker crashes after a receiver accep
 
 Delivery rows snapshot the channel name, type, config and encrypted webhook secret when the alert transition happens. Later channel edits or deletion do not change already-created delivery behavior. A stale `delivering` row is recovered by the retry scanner after `NOTIFICATION_DELIVERY_LEASE_SECONDS`.
 
+## Service Catalog
+
+`GET /api/v1/services` remains the telemetry-observed service discovery endpoint.
+
+The persisted Service Catalog uses separate workspace-scoped endpoints:
+
+- `GET /api/v1/services/catalog`
+- `POST /api/v1/services/catalog`
+- `GET /api/v1/services/catalog/{id}`
+- `PATCH /api/v1/services/catalog/{id}`
+- `DELETE /api/v1/services/catalog/{id}`
+- `GET /api/v1/services/catalog/{id}/summary`
+- `GET /api/v1/service-dependencies`
+- `POST /api/v1/service-dependencies`
+- `PATCH /api/v1/service-dependencies/{id}`
+- `DELETE /api/v1/service-dependencies/{id}`
+
+Catalog rows are auto-created from accepted telemetry ingestion batches. The canonical `name` corresponds to the telemetry event `service` field and is immutable through PATCH so historical telemetry remains attached. Editable metadata includes `displayName`, `description`, `environment`, `version`, `ownerTeam`, `repositoryUrl`, `runbookUrl`, and `tags`.
+
+Service summaries derive health from the active workspace only:
+
+- `unknown`: no recent telemetry and no active service alert/incident.
+- `critical`: active incident, average recent error rate >= 5%, or average recent latency >= 500 ms.
+- `degraded`: active firing alert, average recent error rate >= 1%, or average recent latency >= 250 ms.
+- `healthy`: recent telemetry with none of the degraded/critical conditions.
+
+Service dependencies are manually configured relationships between catalog rows. Supported dependency types are `http`, `queue`, `database`, and `unknown`. The backend rejects self-dependencies, duplicate edges, and cross-workspace service ids. No distributed tracing inference exists yet.
+
 ## Audit Events
 
 Audit events are generated server-side for workspace mutations and security-sensitive auth outcomes. There are no create, patch, or delete endpoints for normal users.

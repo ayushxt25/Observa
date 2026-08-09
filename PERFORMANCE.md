@@ -105,6 +105,12 @@ Audit logging is intentionally low-volume. It records security-sensitive and pro
 
 The frontend alert panel polls rule and incident state at a modest interval. It does not evaluate alert conditions in the browser and does not create additional SSE connections.
 
+## Service Catalog And Topology Strategy
+
+Service catalog state is low-frequency workspace configuration. It is loaded through normal authenticated HTTP APIs and is not mixed into `TelemetryStore` or high-frequency React telemetry context. Telemetry ingestion auto-discovers services per accepted batch by grouping unique service names before writing catalog rows, avoiding one catalog query/write per telemetry row.
+
+Service health summaries use indexed workspace/service/time telemetry filters over a recent five-minute window plus workspace-scoped alert/incident counts. The topology view is an SVG layer with a deterministic radial layout, pan/zoom state, hover, and click selection. It targets modest catalogs around 50 services smoothly and 100 services usefully; it does not add a graph-rendering dependency or create service-specific streams.
+
 ## Auth And Tenancy Performance
 
 Auth state is held in a low-frequency React context separate from telemetry storage and chart rendering. API requests attach an in-memory access token and active workspace id; concurrent `401` responses share one refresh request and retry once. Workspace switches reload dashboard and alert configuration but do not restart telemetry sources or chart pipelines.

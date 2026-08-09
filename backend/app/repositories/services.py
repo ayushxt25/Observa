@@ -1,0 +1,266 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+import json
+
+from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload
+
+from app.models.alerts import AlertRuleModel, IncidentModel
+from app.models.services import ServiceCatalogModel, ServiceDependencyModel
+from app.models.telemetry import TelemetryEventModel
+from app.schemas.services import (
+    ServiceCatalogCreate,
+    ServiceCatalogOut,
+    ServiceCatalogPatch,
+    ServiceDependencyCreate,
+    ServiceDependencyOut,
+    ServiceDependencyPatch,
+    ServiceHealth,
+)
+
+
+class ServiceCatalogRepository:
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def list(self, workspace_id: str) -> list[ServiceCatalogModel]:
+        stmt = select(ServiceCatalogModel).where(ServiceCatalogModel.workspace_id == workspace_id).order_by(ServiceCatalogModel.name)
+        return list(self.db.scalars(stmt).all())
+
+    def get(self, service_id: str, workspace_id: str) -> ServiceCatalogModel | None:
+        stmt = select(ServiceCatalogModel).where(ServiceCatalogModel.id == service_id, ServiceCatalogModel.workspace_id == workspace_id)
+        return self.db.scalars(stmt).first()
+
+    def get_by_name(self, workspace_id: str, name: str) -> ServiceCatalogModel | None:
+        stmt = select(ServiceCatalogModel).where(ServiceCatalogModel.workspace_id == workspace_id, ServiceCatalogModel.name == name)
+        return self.db.scalars(stmt).first()
+
+    def create(self, payload: ServiceCatalogCreate, workspace_id: str, *, commit: bool = True) -> ServiceCatalogModel:
+        service = ServiceCatalogModel(
+            workspace_id=workspace_id,
+            name=payload.name,
+            display_name=payload.display_name,
+            description=payload.description,
+            environment=payload.environment,
+            version=payload.version,
+            owner_team=payload.owner_team,
+            repository_url=payload.repository_url,
+            runbook_url=payload.runbook_url,
+            tags_json=json.dumps(payload.tags),
+        )
+        self.db.add(service)
+        try:
+            if commit:
+                self.db.commit()
+                self.db.refresh(service)
+            else:
+                self.db.flush()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ValueError("Service already exists") from exc
+        return service
+
+    def update(self, service: ServiceCatalogModel, payload: ServiceCatalogPatch, *, commit: bool = True) -> ServiceCatalogModel:
+        data = payload.model_dump(exclude_unset=True)
+        if "tags" in data:
+            service.tags_json = json.dumps(data.pop("tags"))
+        for key, value in data.items():
+            setattr(service, key, value)
+        if commit:
+            self.db.commit()
+            self.db.refresh(service)
+        else:
+            self.db.flush()
+        return service
+
+    def delete(self, service: ServiceCatalogModel, *, commit: bool = True) -> None:
+        self.db.delete(service)
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+
+    def upsert_observed(self, workspace_id: str, observed: dict[str, datetime]) -> None:
+        if not observed:
+            return
+        names = list(observed)
+        existing = {
+            service.name: service
+            for service in self.db.scalars(
+                select(ServiceCatalogModel).where(ServiceCatalogModel.workspace_id == workspace_id, ServiceCatalogModel.name.in_(names))
+            ).all()
+        }
+        for name, timestamp in observed.items():
+            current = existing.get(name)
+            if current is None:
+                self.db.add(ServiceCatalogModel(workspace_id=workspace_id, name=name, last_seen_at=timestamp, tags_json="[]"))
+            elif current.last_seen_at is None or _aware(current.last_seen_at) < _aware(timestamp):
+                current.last_seen_at = timestamp
+        self.db.flush()
+
+    def list_dependencies(self, workspace_id: str) -> list[ServiceDependencyModel]:
+        stmt = (
+            select(ServiceDependencyModel)
+            .options(joinedload(ServiceDependencyModel.source_service), joinedload(ServiceDependencyModel.target_service))
+            .where(ServiceDependencyModel.workspace_id == workspace_id)
+            .order_by(ServiceDependencyModel.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def get_dependency(self, dependency_id: str, workspace_id: str) -> ServiceDependencyModel | None:
+        stmt = (
+            select(ServiceDependencyModel)
+            .options(joinedload(ServiceDependencyModel.source_service), joinedload(ServiceDependencyModel.target_service))
+            .where(ServiceDependencyModel.id == dependency_id, ServiceDependencyModel.workspace_id == workspace_id)
+        )
+        return self.db.scalars(stmt).first()
+
+    def create_dependency(self, payload: ServiceDependencyCreate, workspace_id: str, *, commit: bool = True) -> ServiceDependencyModel:
+        self._validate_dependency_services(payload.source_service_id, payload.target_service_id, workspace_id)
+        dependency = ServiceDependencyModel(
+            workspace_id=workspace_id,
+            source_service_id=payload.source_service_id,
+            target_service_id=payload.target_service_id,
+            dependency_type=payload.dependency_type,
+        )
+        self.db.add(dependency)
+        try:
+            if commit:
+                self.db.commit()
+                self.db.refresh(dependency)
+            else:
+                self.db.flush()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ValueError("Dependency already exists") from exc
+        return dependency
+
+    def update_dependency(self, dependency: ServiceDependencyModel, payload: ServiceDependencyPatch, *, commit: bool = True) -> ServiceDependencyModel:
+        data = payload.model_dump(exclude_unset=True)
+        for key, value in data.items():
+            setattr(dependency, key, value)
+        try:
+            if commit:
+                self.db.commit()
+                self.db.refresh(dependency)
+            else:
+                self.db.flush()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ValueError("Dependency already exists") from exc
+        return dependency
+
+    def delete_dependency(self, dependency: ServiceDependencyModel, *, commit: bool = True) -> None:
+        self.db.delete(dependency)
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+
+    def to_out(self, service: ServiceCatalogModel) -> ServiceCatalogOut:
+        summary = self._summary_metrics(service.workspace_id, service.name)
+        return ServiceCatalogOut(
+            id=service.id,
+            workspace_id=service.workspace_id,
+            name=service.name,
+            display_name=service.display_name,
+            description=service.description,
+            environment=service.environment,
+            version=service.version,
+            owner_team=service.owner_team,
+            repository_url=service.repository_url,
+            runbook_url=service.runbook_url,
+            tags=json.loads(service.tags_json or "[]"),
+            last_seen_at=service.last_seen_at,
+            created_at=service.created_at,
+            updated_at=service.updated_at,
+            **summary,
+        )
+
+    def dependency_to_out(self, dependency: ServiceDependencyModel) -> ServiceDependencyOut:
+        return ServiceDependencyOut(
+            id=dependency.id,
+            workspace_id=dependency.workspace_id,
+            source_service_id=dependency.source_service_id,
+            target_service_id=dependency.target_service_id,
+            dependency_type=dependency.dependency_type,
+            last_seen_at=dependency.last_seen_at,
+            created_at=dependency.created_at,
+            updated_at=dependency.updated_at,
+            source_service_name=dependency.source_service.name if dependency.source_service else None,
+            target_service_name=dependency.target_service.name if dependency.target_service else None,
+        )
+
+    def _validate_dependency_services(self, source_id: str, target_id: str, workspace_id: str) -> None:
+        if source_id == target_id:
+            raise ValueError("Dependency source and target must differ")
+        count = self.db.scalar(
+            select(func.count(ServiceCatalogModel.id)).where(
+                ServiceCatalogModel.workspace_id == workspace_id,
+                ServiceCatalogModel.id.in_([source_id, target_id]),
+            )
+        )
+        if count != 2:
+            raise ValueError("Dependency services must belong to the active workspace")
+
+    def _summary_metrics(self, workspace_id: str, service_name: str) -> dict[str, object]:
+        since = datetime.now(timezone.utc) - timedelta(minutes=5)
+        metrics = self.db.execute(
+            select(
+                func.count(TelemetryEventModel.id),
+                func.avg(TelemetryEventModel.latency),
+                func.avg(TelemetryEventModel.error_rate),
+                func.avg(TelemetryEventModel.throughput),
+            ).where(
+                TelemetryEventModel.workspace_id == workspace_id,
+                TelemetryEventModel.service == service_name,
+                TelemetryEventModel.timestamp >= since,
+            )
+        ).one()
+        active_alerts = self.db.scalar(
+            select(func.count(AlertRuleModel.id)).where(
+                AlertRuleModel.workspace_id == workspace_id,
+                AlertRuleModel.service == service_name,
+                AlertRuleModel.state == "firing",
+            )
+        ) or 0
+        active_incidents = self.db.scalar(
+            select(func.count(IncidentModel.id))
+            .join(AlertRuleModel, AlertRuleModel.id == IncidentModel.alert_rule_id)
+            .where(
+                IncidentModel.workspace_id == workspace_id,
+                IncidentModel.status == "firing",
+                AlertRuleModel.service == service_name,
+            )
+        ) or 0
+        count = int(metrics[0] or 0)
+        avg_latency = float(metrics[1]) if metrics[1] is not None else None
+        error_rate = float(metrics[2]) if metrics[2] is not None else None
+        throughput = float(metrics[3]) if metrics[3] is not None else None
+        health = self._health(count, avg_latency, error_rate, active_alerts, active_incidents)
+        return {
+            "health": health,
+            "recent_event_count": count,
+            "avg_latency": avg_latency,
+            "error_rate": error_rate,
+            "throughput": throughput,
+            "active_alert_count": int(active_alerts),
+            "active_incident_count": int(active_incidents),
+        }
+
+    def _health(self, count: int, avg_latency: float | None, error_rate: float | None, active_alerts: int, active_incidents: int) -> ServiceHealth:
+        if count == 0 and active_alerts == 0 and active_incidents == 0:
+            return "unknown"
+        if active_incidents > 0 or (error_rate is not None and error_rate >= 5) or (avg_latency is not None and avg_latency >= 500):
+            return "critical"
+        if active_alerts > 0 or (error_rate is not None and error_rate >= 1) or (avg_latency is not None and avg_latency >= 250):
+            return "degraded"
+        return "healthy"
+
+
+def _aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

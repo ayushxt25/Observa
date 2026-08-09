@@ -190,7 +190,12 @@ def test_ingestion_publishes_only_accepted_events() -> None:
             assert workspace_id == WORKSPACE_ID
             published.extend(events)
 
-    response = asyncio.run(IngestionService(FakeRepo(), FakeBroker()).ingest(WORKSPACE_ID, [first, duplicate]))
+    class FakeServices:
+        def upsert_observed(self, workspace_id: str, observed) -> None:
+            assert workspace_id == WORKSPACE_ID
+            assert observed == {"api-gateway": first.timestamp}
+
+    response = asyncio.run(IngestionService(FakeRepo(), FakeBroker(), FakeServices()).ingest(WORKSPACE_ID, [first, duplicate]))
 
     assert response.accepted_count == 1
     assert published == [first]

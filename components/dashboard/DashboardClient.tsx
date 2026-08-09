@@ -14,6 +14,7 @@ import { DashboardWidgetGrid } from "./DashboardWidgetRenderer";
 import { AlertsPanel } from "./AlertsPanel";
 import { DashboardHeader } from "./DashboardHeader";
 import { MetricCards } from "./MetricCards";
+import { ServiceCatalogPanel } from "./ServiceCatalogPanel";
 import type { TelemetryPoint } from "@/lib/types";
 
 const PerformanceMonitor = lazy(() =>
@@ -39,6 +40,7 @@ function DashboardSurface() {
       </section>
       <DashboardSelector />
       <AlertsPanel />
+      <ServiceCatalogPanel />
       <ChartGrid />
       <section className="panel">
         <div className="section-heading">

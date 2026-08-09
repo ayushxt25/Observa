@@ -273,6 +273,10 @@ Phase 9 adds workspace-scoped notification channels for alert delivery. Owners/a
 
 Phase 10 adds workspace-scoped audit logs for security-sensitive and product mutations. Audit events are generated server-side, append-only through the API surface, bounded/paginated on read, and restricted to owner/admin roles. Metadata is sanitized recursively so passwords, tokens, API keys, webhook secrets, cookies, authorization headers and similar secret fields are redacted before persistence.
 
+Phase 11 turns telemetry service names into a workspace-scoped Service Catalog. Successful ingestion auto-discovers catalog rows from accepted telemetry batches, updates `lastSeenAt` per unique service, and keeps the canonical telemetry `service` name stable while allowing editable display names, ownership metadata, environment, version, links, and tags. Manually configured service dependencies power a lightweight SVG topology map; Observa does not infer distributed-trace relationships yet.
+
+Service health is derived from recent telemetry and alert state rather than persisted as a fake flag. A five-minute recent window feeds event count, average latency, error rate, throughput, active alert count, and active incident count. Services with no recent telemetry are `unknown`; active incidents or severe recent latency/error rates are `critical`; active firing alerts or elevated latency/error rates are `degraded`; otherwise the service is `healthy`.
+
 ## Authentication And RBAC
 
 Workspace roles are ordered `viewer < member < admin < owner`. Viewers are read-only, members can edit dashboards and alerts, admins can also manage non-owner memberships, and owners have full workspace control. Final-owner demotion and removal are blocked. Frontend workspace selection is stored as a preference only; the backend validates membership on every scoped request using `Authorization` and `X-Workspace-Id`.
@@ -310,7 +314,8 @@ PulseGrid uses Canvas, SVG, ResizeObserver, Web Workers, requestAnimationFrame, 
 
 ## Limitations
 
-- The telemetry is simulated and deterministic; it is not connected to a production service or database.
+- Local simulation remains available; remote mode uses the FastAPI/PostgreSQL/Redis backend when configured.
+- Service dependencies are manually configured unless a future telemetry payload explicitly carries relationship metadata.
 - Worker requests currently receive snapshots rather than shared typed-array buffers.
 - Benchmark values other than the aggregate JavaScript asset-size measurement are intentionally left as measurement placeholders in `PERFORMANCE.md`.
 - Browser support for heap and long-task reporting varies.

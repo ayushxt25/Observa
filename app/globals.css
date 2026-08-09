@@ -513,6 +513,176 @@ input:disabled {
   border-color: rgba(251, 113, 133, 0.68);
 }
 
+.service-catalog-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.service-controls,
+.service-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.service-editor.compact {
+  margin-top: 10px;
+}
+
+.service-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.4fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.service-list,
+.service-dependency-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.service-row {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  background: rgba(17, 27, 39, 0.55);
+}
+
+.service-row span,
+.service-tags,
+.service-edge-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.service-row.active,
+.service-node.active circle {
+  border-color: var(--accent);
+  stroke: var(--accent);
+}
+
+.service-detail {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(17, 27, 39, 0.42);
+}
+
+.service-detail-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.service-detail-head h3,
+.service-map-shell h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.service-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.service-stats span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.service-stats strong {
+  display: block;
+  color: var(--foreground);
+  font-size: 1rem;
+}
+
+.service-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.service-map-shell {
+  min-width: 0;
+}
+
+.service-map {
+  display: block;
+  width: 100%;
+  height: 360px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #071016;
+  touch-action: none;
+}
+
+.service-edge {
+  stroke: rgba(145, 163, 181, 0.58);
+  stroke-width: 1.5;
+}
+
+.service-edge-label {
+  pointer-events: none;
+  text-anchor: middle;
+}
+
+.service-node {
+  cursor: pointer;
+}
+
+.service-node circle {
+  fill: #101a25;
+  stroke: var(--border);
+  stroke-width: 2;
+}
+
+.service-node text {
+  fill: var(--foreground);
+  font-size: 0.76rem;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.health-healthy circle,
+.service-row.health-healthy,
+.service-detail-head.health-healthy {
+  border-color: rgba(34, 197, 94, 0.45);
+  stroke: rgba(34, 197, 94, 0.8);
+}
+
+.health-degraded circle,
+.service-row.health-degraded,
+.service-detail-head.health-degraded {
+  border-color: rgba(250, 204, 21, 0.52);
+  stroke: rgba(250, 204, 21, 0.85);
+}
+
+.health-critical circle,
+.service-row.health-critical,
+.service-detail-head.health-critical {
+  border-color: rgba(251, 113, 133, 0.66);
+  stroke: rgba(251, 113, 133, 0.92);
+}
+
+.health-unknown circle,
+.service-row.health-unknown,
+.service-detail-head.health-unknown {
+  border-color: rgba(145, 163, 181, 0.38);
+  stroke: rgba(145, 163, 181, 0.72);
+}
+
 .wide {
   grid-column: span 2;
 }
@@ -745,7 +915,8 @@ input:disabled {
 @media (max-width: 980px) {
   .metric-grid,
   .controls-grid,
-  .charts-grid {
+  .charts-grid,
+  .service-layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -767,7 +938,8 @@ input:disabled {
 
   .metric-grid,
   .controls-grid,
-  .charts-grid {
+  .charts-grid,
+  .service-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 

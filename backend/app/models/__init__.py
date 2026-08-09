@@ -3,6 +3,7 @@ from app.models.alerts import AlertRuleModel, IncidentModel
 from app.models.auth import AuthSessionModel, UserModel, WorkspaceApiKeyModel, WorkspaceMembershipModel, WorkspaceModel
 from app.models.dashboard import DashboardModel, DashboardWidgetModel
 from app.models.notifications import AlertNotificationChannelModel, NotificationChannelModel, NotificationDeliveryModel
+from app.models.services import ServiceCatalogModel, ServiceDependencyModel
 from app.models.telemetry import TelemetryEventModel
 
 __all__ = [
@@ -15,6 +16,8 @@ __all__ = [
     "IncidentModel",
     "NotificationChannelModel",
     "NotificationDeliveryModel",
+    "ServiceCatalogModel",
+    "ServiceDependencyModel",
     "TelemetryEventModel",
     "UserModel",
     "WorkspaceApiKeyModel",

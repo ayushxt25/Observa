@@ -85,6 +85,7 @@ alembic current
 
 Migration `0001` creates `telemetry_events` and indexes common time/service/region query paths. Migration `0002` creates `dashboards` and `dashboard_widgets` with cascade delete and widget-order indexes. Migration `0003` creates `alert_rules` and `incidents`, including a partial unique index for one active firing incident per rule.
 Migration `0004` creates users, workspaces, memberships and auth sessions, then backfills existing development dashboards and alert rules into a default workspace without touching telemetry history.
+Migration `0008` creates workspace-scoped service catalog and dependency tables. Service catalog rows can be auto-discovered from telemetry ingestion or managed through the API; deleting a catalog row does not delete historical telemetry.
 
 ## Seed Data
 
@@ -105,6 +106,16 @@ The generator posts realistic deterministic telemetry to the batch ingestion end
 - `GET /api/v1/telemetry/stream`
 - `GET /api/v1/metrics/query`
 - `GET /api/v1/services`
+- `GET /api/v1/services/catalog`
+- `POST /api/v1/services/catalog`
+- `GET /api/v1/services/catalog/{id}`
+- `PATCH /api/v1/services/catalog/{id}`
+- `DELETE /api/v1/services/catalog/{id}`
+- `GET /api/v1/services/catalog/{id}/summary`
+- `GET /api/v1/service-dependencies`
+- `POST /api/v1/service-dependencies`
+- `PATCH /api/v1/service-dependencies/{id}`
+- `DELETE /api/v1/service-dependencies/{id}`
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/refresh`
@@ -155,6 +166,8 @@ Phase 9 adds alert notification delivery. Notification channels are workspace-sc
 Webhook delivery sends JSON with alert, incident, metric, value and threshold context plus a stable `deliveryId`. If a signing secret is configured, the worker signs `timestamp + "." + rawBody` with HMAC-SHA256 and sends `X-Observa-Delivery-Id`, `X-Observa-Signature: sha256=<hex>` and `X-Observa-Timestamp`. Delivery is at-least-once; webhook consumers should deduplicate by delivery id. Secrets are encrypted at rest with `NOTIFICATION_SECRET_KEY` and are never returned in API responses. Production SSRF protection blocks non-HTTPS and private/loopback/link-local destinations; Docker development explicitly sets `WEBHOOK_ALLOW_PRIVATE_NETWORKS=true` for local receivers. DNS is validated before request and redirects are disabled; DNS rebinding between validation and the HTTP client's connection remains a documented residual risk.
 
 Phase 10 adds durable audit events for authenticated mutations. `GET /api/v1/audit-events` and `GET /api/v1/audit-events/{id}` are workspace-scoped and owner/admin-only. The backend emits a server-generated `X-Request-Id` header and stores that request id with audit rows. Mandatory product mutation audits are written in the same database transaction as their domain mutation, so an audit insert failure rolls the mutation back. Auth success/failure events and manual alert evaluation audit are recorded after their underlying auth/evaluation operation. Audit metadata is built from safe identifiers and changed-field summaries, then recursively redacted before insert; there are no update or delete endpoints for audit events.
+
+Phase 11 adds a Service Catalog. Telemetry ingestion auto-creates or updates service rows from accepted event service names in batches, without auditing automatic discovery. The canonical `name` remains the telemetry identifier and is not editable through PATCH; use `displayName` for friendly naming. Service dependencies are manually configured as `http`, `queue`, `database`, or `unknown` until tracing or explicit relationship telemetry exists. Service health is derived from recent workspace telemetry plus active alerts/incidents.
 
 Email delivery uses SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS`). Missing SMTP configuration leaves delivery rows retryable instead of dropping them.
 
