@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 
 from sqlalchemy import and_, func, select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -85,6 +86,25 @@ class ServiceCatalogRepository:
     def upsert_observed(self, workspace_id: str, observed: dict[str, datetime]) -> None:
         if not observed:
             return
+        if self.db.get_bind().dialect.name == "postgresql":
+            rows = [
+                {"workspace_id": workspace_id, "name": name, "last_seen_at": timestamp, "tags_json": "[]"}
+                for name, timestamp in observed.items()
+            ]
+            stmt = postgresql_insert(ServiceCatalogModel).values(rows)
+            self.db.execute(
+                stmt.on_conflict_do_update(
+                    constraint="uq_services_workspace_name",
+                    set_={
+                        "last_seen_at": func.greatest(
+                            func.coalesce(ServiceCatalogModel.last_seen_at, stmt.excluded.last_seen_at),
+                            stmt.excluded.last_seen_at,
+                        )
+                    },
+                )
+            )
+            self.db.flush()
+            return
         names = list(observed)
         existing = {
             service.name: service
@@ -159,8 +179,8 @@ class ServiceCatalogRepository:
         else:
             self.db.flush()
 
-    def to_out(self, service: ServiceCatalogModel) -> ServiceCatalogOut:
-        summary = self._summary_metrics(service.workspace_id, service.name)
+    def to_out(self, service: ServiceCatalogModel, summary: dict[str, object] | None = None) -> ServiceCatalogOut:
+        resolved_summary = summary or self._summary_metrics(service.workspace_id, service.name)
         return ServiceCatalogOut(
             id=service.id,
             workspace_id=service.workspace_id,
@@ -176,8 +196,62 @@ class ServiceCatalogRepository:
             last_seen_at=service.last_seen_at,
             created_at=service.created_at,
             updated_at=service.updated_at,
-            **summary,
+            **resolved_summary,
         )
+
+    def summary_map(self, workspace_id: str, service_names: list[str]) -> dict[str, dict[str, object]]:
+        if not service_names:
+            return {}
+        since = datetime.now(timezone.utc) - timedelta(minutes=5)
+        metric_rows = self.db.execute(
+            select(
+                TelemetryEventModel.service,
+                func.count(TelemetryEventModel.id),
+                func.avg(TelemetryEventModel.latency),
+                func.avg(TelemetryEventModel.error_rate),
+                func.avg(TelemetryEventModel.throughput),
+            )
+            .where(
+                TelemetryEventModel.workspace_id == workspace_id,
+                TelemetryEventModel.service.in_(service_names),
+                TelemetryEventModel.timestamp >= since,
+            )
+            .group_by(TelemetryEventModel.service)
+        ).all()
+        alert_rows = self.db.execute(
+            select(AlertRuleModel.service, func.count(AlertRuleModel.id))
+            .where(
+                AlertRuleModel.workspace_id == workspace_id,
+                AlertRuleModel.service.in_(service_names),
+                AlertRuleModel.state == "firing",
+                AlertRuleModel.enabled.is_(True),
+            )
+            .group_by(AlertRuleModel.service)
+        ).all()
+        incident_rows = self.db.execute(
+            select(AlertRuleModel.service, func.count(IncidentModel.id))
+            .join(AlertRuleModel, AlertRuleModel.id == IncidentModel.alert_rule_id)
+            .where(
+                IncidentModel.workspace_id == workspace_id,
+                IncidentModel.status == "firing",
+                AlertRuleModel.service.in_(service_names),
+            )
+            .group_by(AlertRuleModel.service)
+        ).all()
+        metrics = {row[0]: row for row in metric_rows}
+        alerts = {row[0]: int(row[1] or 0) for row in alert_rows if row[0] is not None}
+        incidents = {row[0]: int(row[1] or 0) for row in incident_rows if row[0] is not None}
+        return {
+            name: self._summary_from_values(
+                int(metrics[name][1] or 0) if name in metrics else 0,
+                float(metrics[name][2]) if name in metrics and metrics[name][2] is not None else None,
+                float(metrics[name][3]) if name in metrics and metrics[name][3] is not None else None,
+                float(metrics[name][4]) if name in metrics and metrics[name][4] is not None else None,
+                alerts.get(name, 0),
+                incidents.get(name, 0),
+            )
+            for name in service_names
+        }
 
     def dependency_to_out(self, dependency: ServiceDependencyModel) -> ServiceDependencyOut:
         return ServiceDependencyOut(
@@ -224,6 +298,7 @@ class ServiceCatalogRepository:
                 AlertRuleModel.workspace_id == workspace_id,
                 AlertRuleModel.service == service_name,
                 AlertRuleModel.state == "firing",
+                AlertRuleModel.enabled.is_(True),
             )
         ) or 0
         active_incidents = self.db.scalar(
@@ -239,6 +314,17 @@ class ServiceCatalogRepository:
         avg_latency = float(metrics[1]) if metrics[1] is not None else None
         error_rate = float(metrics[2]) if metrics[2] is not None else None
         throughput = float(metrics[3]) if metrics[3] is not None else None
+        return self._summary_from_values(count, avg_latency, error_rate, throughput, int(active_alerts), int(active_incidents))
+
+    def _summary_from_values(
+        self,
+        count: int,
+        avg_latency: float | None,
+        error_rate: float | None,
+        throughput: float | None,
+        active_alerts: int,
+        active_incidents: int,
+    ) -> dict[str, object]:
         health = self._health(count, avg_latency, error_rate, active_alerts, active_incidents)
         return {
             "health": health,
@@ -246,8 +332,8 @@ class ServiceCatalogRepository:
             "avg_latency": avg_latency,
             "error_rate": error_rate,
             "throughput": throughput,
-            "active_alert_count": int(active_alerts),
-            "active_incident_count": int(active_incidents),
+            "active_alert_count": active_alerts,
+            "active_incident_count": active_incidents,
         }
 
     def _health(self, count: int, avg_latency: float | None, error_rate: float | None, active_alerts: int, active_incidents: int) -> ServiceHealth:

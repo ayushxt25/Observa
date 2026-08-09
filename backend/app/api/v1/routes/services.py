@@ -67,7 +67,9 @@ def list_catalog(
     repo: Annotated[ServiceCatalogRepository, Depends(get_catalog_repository)],
     membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))],
 ) -> ServiceCatalogListResponse:
-    return ServiceCatalogListResponse(services=[repo.to_out(service) for service in repo.list(membership.workspace_id)])
+    services = repo.list(membership.workspace_id)
+    summaries = repo.summary_map(membership.workspace_id, [service.name for service in services])
+    return ServiceCatalogListResponse(services=[repo.to_out(service, summaries.get(service.name)) for service in services])
 
 
 @router.post("/catalog", response_model=ServiceCatalogOut, status_code=status.HTTP_201_CREATED, summary="Create service metadata")

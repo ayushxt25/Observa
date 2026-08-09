@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-ServiceId = Literal["api-gateway", "auth-service", "billing-service", "search-service", "worker"]
+ServiceId = Annotated[str, Field(min_length=1, max_length=64)]
 Region = Literal["us-east", "us-west", "eu-central", "ap-south"]
 TelemetryStatus = Literal["healthy", "degraded", "critical"]
 
@@ -44,6 +44,13 @@ class TelemetryEventIn(ApiModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
         return value.astimezone(timezone.utc)
+
+    @field_validator("service")
+    @classmethod
+    def service_name_must_be_clean(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("service must not include leading or trailing whitespace")
+        return value
 
 
 class TelemetryBatchIn(ApiModel):

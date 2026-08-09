@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, field_validator
 
@@ -27,11 +28,28 @@ class ServiceCatalogBase(ApiModel):
         seen: set[str] = set()
         for item in value:
             tag = item.strip().lower()
-            if not tag or len(tag) > 40 or tag in seen:
+            if not tag:
+                continue
+            if len(tag) > 40:
+                raise ValueError("tags must be 40 characters or fewer")
+            if tag in seen:
                 continue
             seen.add(tag)
             normalized.append(tag)
         return normalized
+
+    @field_validator("repository_url", "runbook_url")
+    @classmethod
+    def urls_must_be_http(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            return None
+        parsed = urlparse(stripped)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("URL must use http or https")
+        return stripped
 
 
 class ServiceCatalogCreate(ServiceCatalogBase):

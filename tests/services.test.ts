@@ -85,6 +85,44 @@ describe("service topology", () => {
     expect(layout.nodes).toHaveLength(100);
     expect(layout.edges).toHaveLength(99);
   });
+
+  it("is deterministic for shuffled nodes and edges", () => {
+    const services = [service("s3", "worker"), service("s1", "api-gateway"), service("s2", "auth-service")];
+    const dependencies: ServiceDependency[] = [
+      { id: "d2", workspaceId: "workspace-1", sourceServiceId: "s2", targetServiceId: "s3", dependencyType: "queue", createdAt: "2026-08-09T00:00:00Z", updatedAt: "2026-08-09T00:00:00Z" },
+      { id: "d1", workspaceId: "workspace-1", sourceServiceId: "s1", targetServiceId: "s2", dependencyType: "http", createdAt: "2026-08-09T00:00:00Z", updatedAt: "2026-08-09T00:00:00Z" },
+    ];
+    expect(buildTopologyLayout(services, dependencies)).toEqual(buildTopologyLayout([...services].reverse(), [...dependencies].reverse()));
+  });
+
+  it("handles empty, isolated, cyclic and dense graphs with finite coordinates", () => {
+    expect(buildTopologyLayout([], [])).toEqual({ nodes: [], edges: [] });
+    const one = buildTopologyLayout([service("s1", "solo")], []);
+    expect(one.nodes).toHaveLength(1);
+    const ten = Array.from({ length: 10 }, (_, index) => service(`i${index}`, `isolated-${index}`));
+    const cycle: ServiceDependency[] = [
+      { id: "c1", workspaceId: "workspace-1", sourceServiceId: "i0", targetServiceId: "i1", dependencyType: "http", createdAt: "2026-08-09T00:00:00Z", updatedAt: "2026-08-09T00:00:00Z" },
+      { id: "c2", workspaceId: "workspace-1", sourceServiceId: "i1", targetServiceId: "i0", dependencyType: "http", createdAt: "2026-08-09T00:00:00Z", updatedAt: "2026-08-09T00:00:00Z" },
+    ];
+    const dense = ten.flatMap((item, index) => ten.slice(index + 1, index + 4).map((target, offset): ServiceDependency => ({
+      id: `dense-${index}-${offset}`,
+      workspaceId: "workspace-1",
+      sourceServiceId: item.id,
+      targetServiceId: target.id,
+      dependencyType: "unknown",
+      createdAt: "2026-08-09T00:00:00Z",
+      updatedAt: "2026-08-09T00:00:00Z",
+    })));
+    for (const layout of [buildTopologyLayout(ten, []), buildTopologyLayout(ten, cycle), buildTopologyLayout(ten, dense)]) {
+      for (const node of layout.nodes) {
+        expect(Number.isFinite(node.x)).toBe(true);
+        expect(Number.isFinite(node.y)).toBe(true);
+      }
+      for (const edge of layout.edges) {
+        expect([edge.x1, edge.y1, edge.x2, edge.y2].every(Number.isFinite)).toBe(true);
+      }
+    }
+  });
 });
 
 describe("ServicesApi", () => {

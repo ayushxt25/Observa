@@ -40,7 +40,13 @@ export function buildTopologyLayout(services: readonly ServiceCatalogItem[], dep
     };
   });
   const nodeMap = new Map(nodes.map((node) => [node.id, node]));
-  const edges = dependencies.flatMap((dependency) => {
+  const sortedDependencies = [...dependencies].sort((left, right) =>
+    left.sourceServiceId.localeCompare(right.sourceServiceId) ||
+    left.targetServiceId.localeCompare(right.targetServiceId) ||
+    left.dependencyType.localeCompare(right.dependencyType) ||
+    left.id.localeCompare(right.id)
+  );
+  const edges = sortedDependencies.flatMap((dependency) => {
     const source = nodeMap.get(dependency.sourceServiceId);
     const target = nodeMap.get(dependency.targetServiceId);
     if (!source || !target) return [];
