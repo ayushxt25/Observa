@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { generateInitialTelemetry } from "@/lib/dataGenerator";
 import { markInteractionStart } from "@/lib/performance/marks";
 import { createTelemetrySource } from "@/lib/telemetry/sourceFactory";
@@ -66,6 +67,7 @@ function sameStatus(left: TelemetrySourceStatus, right: TelemetrySourceStatus): 
 }
 
 export function DataProvider({ initialData, children }: Props & { children: ReactNode }) {
+  const { activeWorkspace } = useAuth();
   const [controls, setControls] = useState<DashboardControls>({
     isPaused: false,
     capacity: 10000,
@@ -85,6 +87,7 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
   const sourceTokenRef = useRef(0);
   const activeInteractionRef = useRef<{ type: InteractionType; start: number } | null>(null);
   const controlsRef = useRef(controls);
+  const workspaceRef = useRef(activeWorkspace?.id ?? null);
 
   useEffect(() => {
     controlsRef.current = controls;
@@ -194,6 +197,23 @@ export function DataProvider({ initialData, children }: Props & { children: Reac
     }));
     startSource(nextSource);
   }, [initialData, startSource, store]);
+
+  useEffect(() => {
+    const nextWorkspace = activeWorkspace?.id ?? null;
+    if (workspaceRef.current === nextWorkspace) return;
+    workspaceRef.current = nextWorkspace;
+    if (controlsRef.current.sourceKind !== "remote") return;
+    const capacity = store.getSnapshot().capacity as CapacityPreset;
+    const nextSource = createTelemetrySource("remote", { initialData, batchSize: controlsRef.current.batchSize });
+    store.reset([], capacity);
+    setControls((state) => ({
+      ...state,
+      serviceFilter: "all",
+      availableServices: [],
+      sourceStatus: initialStatus("remote", 0),
+    }));
+    startSource(nextSource);
+  }, [activeWorkspace?.id, initialData, startSource, store]);
 
   const stressMode = useCallback(() => {
     markInteraction("stress");

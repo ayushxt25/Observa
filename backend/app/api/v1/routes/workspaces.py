@@ -2,10 +2,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import get_auth_repository, get_current_active_user, get_current_workspace, require_workspace_role
+from app.api.deps import get_api_key_repository, get_auth_repository, get_current_active_user, get_current_workspace, require_workspace_role
 from app.core.rbac import can_assign_role, can_manage_members
 from app.models.auth import UserModel, WorkspaceMembershipModel
+from app.repositories.api_keys import ApiKeyRepository
 from app.repositories.auth import AuthRepository
+from app.schemas.api_keys import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyListResponse, ApiKeyOut
 from app.schemas.auth import MemberAdd, MemberPatch, MembershipListResponse, MembershipOut, WorkspaceCreate, WorkspaceListResponse, WorkspaceOut, WorkspacePatch
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
@@ -24,6 +26,19 @@ def member_out(membership: WorkspaceMembershipModel) -> MembershipOut:
         role=membership.role,
         created_at=membership.created_at,
         updated_at=membership.updated_at,
+    )
+
+
+def api_key_out(key) -> ApiKeyOut:
+    return ApiKeyOut(
+        id=key.id,
+        workspace_id=key.workspace_id,
+        name=key.name,
+        key_prefix=key.key_prefix,
+        created_at=key.created_at,
+        last_used_at=key.last_used_at,
+        revoked_at=key.revoked_at,
+        expires_at=key.expires_at,
     )
 
 
@@ -138,3 +153,42 @@ def remove_member(
     if target.role == "owner" and repo.owner_count(workspace_id) <= 1:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot remove final owner")
     repo.remove_member(target)
+
+
+@router.get("/{workspace_id}/api-keys", response_model=ApiKeyListResponse)
+def list_api_keys(
+    workspace_id: str,
+    membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("admin"))],
+    repo: Annotated[ApiKeyRepository, Depends(get_api_key_repository)],
+) -> ApiKeyListResponse:
+    if membership.workspace_id != workspace_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Workspace access denied")
+    return ApiKeyListResponse(api_keys=[api_key_out(key) for key in repo.list_keys(workspace_id)])
+
+
+@router.post("/{workspace_id}/api-keys", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_api_key(
+    workspace_id: str,
+    payload: ApiKeyCreate,
+    membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("admin"))],
+    repo: Annotated[ApiKeyRepository, Depends(get_api_key_repository)],
+) -> ApiKeyCreateResponse:
+    if membership.workspace_id != workspace_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Workspace access denied")
+    key, raw = repo.create_key(workspace_id, payload, membership.user_id)
+    return ApiKeyCreateResponse(**api_key_out(key).model_dump(), raw_key=raw)
+
+
+@router.delete("/{workspace_id}/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_api_key(
+    workspace_id: str,
+    key_id: str,
+    membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("admin"))],
+    repo: Annotated[ApiKeyRepository, Depends(get_api_key_repository)],
+) -> None:
+    if membership.workspace_id != workspace_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Workspace access denied")
+    key = repo.get_key(workspace_id, key_id)
+    if key is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+    repo.revoke_key(key)

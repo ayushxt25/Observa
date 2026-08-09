@@ -4,6 +4,7 @@ type CacheEntry<T> = { expiresAt: number; promise: Promise<T>; controller: Abort
 
 export function buildMetricQueryKey(query: MetricQueryKey): string {
   return JSON.stringify({
+    workspaceId: query.workspaceId ?? "none",
     metric: query.metric,
     aggregation: query.aggregation,
     bucket: query.bucket,

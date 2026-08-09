@@ -135,7 +135,7 @@ The generator posts realistic deterministic telemetry to the batch ingestion end
 - `GET /api/v1/incidents/{id}`
 
 The API uses camelCase JSON to align with the frontend domain, while Python models use snake_case internally.
-Live SSE reads from Redis Streams; historical HTTP reads remain PostgreSQL-backed.
+Live SSE reads from workspace Redis Streams; historical HTTP reads remain PostgreSQL-backed and workspace-filtered. Machine ingestion uses `Authorization: Bearer <workspace API key>` or `X-Observa-Api-Key`, and the backend derives `workspace_id` from the key.
 Dashboard endpoints persist view configuration only; they do not store telemetry samples or create live streams.
 
 ## Alert Evaluation
@@ -146,7 +146,9 @@ Celery beat runs one periodic scan task, `alerts.evaluate_due_rules`, every 5 se
 
 The backend uses email/password registration and login. Passwords are hashed with bcrypt through Passlib. Access tokens are short-lived JWTs with explicit access-token type, issuer, audience and subject claims. Refresh tokens are opaque random values stored only as SHA-256 hashes in `auth_sessions`; refresh rotates the session and logout revokes the current refresh token. Register, login and refresh endpoints use a small Redis-backed per-IP rate limiter. If Redis is unavailable, rate limiting fails open and logs a warning so normal auth does not hard-fail during Redis outages.
 
-Workspace-scoped APIs require `Authorization: Bearer <accessToken>` and usually `X-Workspace-Id`. If no workspace header is supplied, the first membership is used. Dashboards, alert rules and incidents are tenant-scoped; telemetry events are not workspace-scoped yet. Role order is `viewer < member < admin < owner`, with final-owner demotion and removal blocked.
+Workspace-scoped APIs require `Authorization: Bearer <accessToken>` and usually `X-Workspace-Id`. If no workspace header is supplied, the first membership is used. Dashboards, alert rules, incidents and telemetry reads are tenant-scoped. Role order is `viewer < member < admin < owner`, with final-owner demotion and removal blocked.
+
+Phase 8 also scopes telemetry reads, services, metrics and SSE to the active workspace. Workspace API keys are stored only as hashes, shown once on creation, revocable by owner/admin, and protected by a lightweight per-key ingestion rate limit.
 
 ## Tests
 

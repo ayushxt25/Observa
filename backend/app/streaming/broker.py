@@ -40,7 +40,7 @@ class TelemetryBroker:
         await self._client.ping()
         return True
 
-    async def publish(self, events: list[TelemetryEventIn]) -> bool:
+    async def publish(self, workspace_id: str, events: list[TelemetryEventIn]) -> bool:
         if self._client is None or not events:
             return False
         payload = json.dumps(
@@ -49,7 +49,7 @@ class TelemetryBroker:
         )
         try:
             await self._client.xadd(
-                self.settings.redis_stream_name,
+                self.stream_key(workspace_id),
                 {"events": payload, "count": str(len(events))},
                 maxlen=self.settings.telemetry_stream_maxlen,
                 approximate=True,
@@ -64,16 +64,20 @@ class TelemetryBroker:
             raise TelemetryStreamCursorError("Invalid Redis stream cursor")
         return cursor
 
-    async def latest_id(self) -> str:
+    def stream_key(self, workspace_id: str) -> str:
+        return f"{self.settings.redis_stream_name}:{workspace_id}"
+
+    async def latest_id(self, workspace_id: str) -> str:
         if self._client is None:
             raise RedisError("Redis client is not connected")
-        rows = await self._client.xrevrange(self.settings.redis_stream_name, count=1)
+        rows = await self._client.xrevrange(self.stream_key(workspace_id), count=1)
         if not rows:
             return "0-0"
         return rows[0][0]
 
     async def read_batches(
         self,
+        workspace_id: str,
         cursor: str,
         *,
         block_ms: int = 15_000,
@@ -84,7 +88,7 @@ class TelemetryBroker:
         current = self.validate_cursor(cursor)
         while True:
             response = await self._client.xread(
-                {self.settings.redis_stream_name: current},
+                {self.stream_key(workspace_id): current},
                 count=count,
                 block=block_ms,
             )

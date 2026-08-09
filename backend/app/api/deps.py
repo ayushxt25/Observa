@@ -1,16 +1,18 @@
 from typing import Annotated, Callable
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.rbac import has_role
+from app.core.rate_limit import RedisRateLimiter
 from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.auth import UserModel, WorkspaceMembershipModel
 from app.repositories.auth import AuthRepository
+from app.repositories.api_keys import ApiKeyRepository
 from app.schemas.auth import WorkspaceRole
 
 
@@ -19,6 +21,10 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 def get_auth_repository(db: Annotated[Session, Depends(get_db)]) -> AuthRepository:
     return AuthRepository(db)
+
+
+def get_api_key_repository(db: Annotated[Session, Depends(get_db)]) -> ApiKeyRepository:
+    return ApiKeyRepository(db)
 
 
 def get_current_user(
@@ -67,3 +73,22 @@ def require_workspace_role(minimum: WorkspaceRole) -> Callable[[WorkspaceMembers
         return membership
 
     return dependency
+
+
+def get_workspace_api_key(
+    repo: Annotated[ApiKeyRepository, Depends(get_api_key_repository)],
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    observa_key: Annotated[str | None, Header(alias="X-Observa-Api-Key")] = None,
+):
+    raw = observa_key
+    if raw is None and authorization and authorization.lower().startswith("bearer "):
+        raw = authorization[7:].strip()
+    if not raw or not raw.startswith("obs_live_"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Workspace API key required")
+    key = repo.authenticate(raw)
+    if key is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid workspace API key")
+    RedisRateLimiter(settings).check_identity(f"ingest:{key.key_prefix}", "ingest", settings.ingestion_rate_limit_per_minute)
+    return key

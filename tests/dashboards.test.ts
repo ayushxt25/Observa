@@ -74,6 +74,7 @@ describe("query cache", () => {
   it("creates stable keys and deduplicates in-flight requests", async () => {
     const key = buildMetricQueryKey({ metric: "latency", aggregation: "avg", bucket: "1m", timeRange: "15m", sourceVersion: 1 });
     expect(key).toBe(buildMetricQueryKey({ metric: "latency", aggregation: "avg", bucket: "1m", timeRange: "15m", sourceVersion: 1 }));
+    expect(key).not.toBe(buildMetricQueryKey({ workspaceId: "workspace-2", metric: "latency", aggregation: "avg", bucket: "1m", timeRange: "15m", sourceVersion: 1 }));
     const cache = new QueryCache<number>(1000);
     let calls = 0;
     const first = cache.get(key, async () => {

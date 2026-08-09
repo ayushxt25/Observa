@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from fastapi import status
 
 from app.api.v1.routes.health import get_database_ready, get_health_broker
 from app.api.v1.routes.metrics import get_metrics_service
 from app.api.v1.routes.telemetry import get_ingestion_service
+from app.api.deps import get_current_workspace, get_workspace_api_key
 from app.core.config import get_settings
 from app.main import app
 from app.schemas.metrics import MetricQueryResponse
@@ -27,8 +29,12 @@ def event_payload(event_id: str = "event-1") -> dict[str, object]:
     }
 
 
+WORKSPACE_ID = "workspace-test"
+
+
 class FakeIngestionService:
-    async def ingest(self, events):
+    async def ingest(self, workspace_id, events):
+        assert workspace_id == WORKSPACE_ID
         return IngestionResponse(
             accepted_count=len(events),
             rejected_count=0,
@@ -37,7 +43,8 @@ class FakeIngestionService:
 
 
 class FakeMetricsService:
-    def query(self, params):
+    def query(self, workspace_id, params):
+        assert workspace_id == WORKSPACE_ID
         return MetricQueryResponse(
             metric=params.metric,
             aggregation=params.aggregation,
@@ -47,7 +54,8 @@ class FakeMetricsService:
             limited=False,
         )
 
-    def services(self):
+    def services(self, workspace_id):
+        assert workspace_id == WORKSPACE_ID
         return ServicesResponse(services=[])
 
 
@@ -58,6 +66,7 @@ class FakeBroker:
 
 def test_single_ingestion(client) -> None:
     app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
+    app.dependency_overrides[get_workspace_api_key] = lambda: SimpleNamespace(workspace_id=WORKSPACE_ID)
     response = client.post("/api/v1/telemetry", json=event_payload())
     assert response.status_code == status.HTTP_202_ACCEPTED
     assert response.json()["acceptedCount"] == 1
@@ -65,6 +74,7 @@ def test_single_ingestion(client) -> None:
 
 def test_batch_ingestion(client) -> None:
     app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
+    app.dependency_overrides[get_workspace_api_key] = lambda: SimpleNamespace(workspace_id=WORKSPACE_ID)
     payload = {"events": [event_payload("event-1"), event_payload("event-2")]}
     response = client.post("/api/v1/telemetry/batch", json=payload)
     assert response.status_code == status.HTTP_202_ACCEPTED
@@ -77,6 +87,7 @@ def test_max_batch_size_enforced(client) -> None:
 
     app.dependency_overrides[get_settings] = lambda: SmallBatchSettings()
     app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
+    app.dependency_overrides[get_workspace_api_key] = lambda: SimpleNamespace(workspace_id=WORKSPACE_ID)
     oversized = [event_payload(f"event-{index}") for index in range(3)]
     response = client.post("/api/v1/telemetry/batch", json={"events": oversized})
     assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
@@ -84,6 +95,7 @@ def test_max_batch_size_enforced(client) -> None:
 
 def test_metric_query_endpoint(client) -> None:
     app.dependency_overrides[get_metrics_service] = lambda: FakeMetricsService()
+    app.dependency_overrides[get_current_workspace] = lambda: SimpleNamespace(workspace_id=WORKSPACE_ID)
     response = client.get("/api/v1/metrics/query?metric=latency&aggregation=avg&bucket=1m")
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["metric"] == "latency"

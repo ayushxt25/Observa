@@ -5,7 +5,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.db.base import Base
-from app.models import AlertRuleModel, AuthSessionModel, DashboardModel, DashboardWidgetModel, IncidentModel, TelemetryEventModel, UserModel, WorkspaceMembershipModel, WorkspaceModel
+from app.models import AlertRuleModel, AuthSessionModel, DashboardModel, DashboardWidgetModel, IncidentModel, TelemetryEventModel, UserModel, WorkspaceApiKeyModel, WorkspaceMembershipModel, WorkspaceModel
 
 config = context.config
 

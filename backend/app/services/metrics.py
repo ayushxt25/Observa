@@ -13,10 +13,10 @@ class MetricsService:
         self.repository = repository
         self.max_query_rows = max_query_rows
 
-    def query(self, params: MetricQueryParams) -> MetricQueryResponse:
+    def query(self, workspace_id: str, params: MetricQueryParams) -> MetricQueryResponse:
         params.validate_range()
         started = perf_counter()
-        points, limited = self.repository.metric_points(params, self.max_query_rows)
+        points, limited = self.repository.metric_points(workspace_id, params, self.max_query_rows)
         duration_ms = (perf_counter() - started) * 1000
         logger.info(
             "metric_query metric=%s bucket=%s rows=%s duration_ms=%.3f",
@@ -34,5 +34,5 @@ class MetricsService:
             limited=limited,
         )
 
-    def services(self) -> ServicesResponse:
-        return ServicesResponse(services=self.repository.service_summaries())
+    def services(self, workspace_id: str) -> ServicesResponse:
+        return ServicesResponse(services=self.repository.service_summaries(workspace_id))

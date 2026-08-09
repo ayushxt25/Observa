@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/components/providers/AuthProvider";
+import { ApiKeyManager } from "./ApiKeyManager";
 
 export function WorkspaceSwitcher() {
   const auth = useAuth();
@@ -14,6 +15,7 @@ export function WorkspaceSwitcher() {
       </label>
       <span>{auth.user.email}</span>
       <button type="button" onClick={() => void auth.logout()}>Logout</button>
+      {auth.activeWorkspace ? <ApiKeyManager workspace={auth.activeWorkspace} /> : null}
     </section>
   );
 }

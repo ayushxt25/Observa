@@ -16,7 +16,10 @@ class RedisRateLimiter:
 
     def check(self, request: Request, action: str, limit: int) -> None:
         client_host = request.client.host if request.client else "unknown"
-        key = f"rate:auth:{action}:{client_host}"
+        self.check_identity(f"auth:{action}:{client_host}", action, limit)
+
+    def check_identity(self, identity: str, action: str, limit: int) -> None:
+        key = f"rate:{identity}"
         try:
             current = self.client.incr(key)
             if current == 1:

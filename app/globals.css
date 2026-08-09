@@ -409,6 +409,34 @@ input:disabled {
   min-width: min(100%, 260px);
 }
 
+.api-key-manager {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.api-key-once,
+.api-key-list,
+.api-key-row {
+  grid-column: 1 / -1;
+}
+
+.api-key-once,
+.api-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.api-key-once code {
+  overflow: auto;
+  max-width: 100%;
+}
+
 .alert-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));

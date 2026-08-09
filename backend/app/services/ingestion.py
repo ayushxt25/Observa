@@ -13,15 +13,16 @@ class IngestionService:
         self.repository = repository
         self.broker = broker
 
-    async def ingest(self, events: list[TelemetryEventIn]) -> IngestionResponse:
+    async def ingest(self, workspace_id: str, events: list[TelemetryEventIn]) -> IngestionResponse:
         started = perf_counter()
-        accepted = self.repository.insert_batch(events)
+        accepted_events = self.repository.insert_batch(workspace_id, events)
         self.repository.db.commit()
-        await self.broker.publish(events)
+        if accepted_events:
+            await self.broker.publish(workspace_id, accepted_events)
         duration_ms = (perf_counter() - started) * 1000
-        logger.info("telemetry_ingested count=%s duration_ms=%.3f", accepted, duration_ms)
+        logger.info("telemetry_ingested workspace_id=%s count=%s duration_ms=%.3f", workspace_id, len(accepted_events), duration_ms)
         return IngestionResponse(
-            accepted_count=accepted,
+            accepted_count=len(accepted_events),
             rejected_count=0,
             processing_duration_ms=duration_ms,
         )

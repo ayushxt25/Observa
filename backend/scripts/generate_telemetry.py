@@ -1,5 +1,6 @@
 import argparse
 import math
+import os
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -40,10 +41,13 @@ def chunks(events: list[dict[str, Any]], size: int) -> list[list[dict[str, Any]]
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate deterministic telemetry into Observa API.")
     parser.add_argument("--url", default="http://localhost:8000/api/v1/telemetry/batch")
+    parser.add_argument("--api-key", default=os.environ.get("OBSERVA_API_KEY"))
     parser.add_argument("--count", type=int, default=10_000)
     parser.add_argument("--batch-size", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    if not args.api_key:
+        raise SystemExit("--api-key or OBSERVA_API_KEY is required")
 
     rng = random.Random(args.seed)
     started = datetime.now(timezone.utc) - timedelta(milliseconds=args.count * 100)
@@ -52,7 +56,7 @@ def main() -> None:
     accepted = 0
     with httpx.Client(timeout=30) as client:
         for batch in chunks(events, args.batch_size):
-            response = client.post(args.url, json={"events": batch})
+            response = client.post(args.url, json={"events": batch}, headers={"Authorization": f"Bearer {args.api_key}"})
             response.raise_for_status()
             accepted += int(response.json()["acceptedCount"])
     print(f"accepted={accepted} requested={args.count} url={args.url}")

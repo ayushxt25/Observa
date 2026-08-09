@@ -90,7 +90,7 @@ class AlertEvaluationService:
             bucket=rule.bucket,
         )
         params.validate_range()
-        points, _ = self.telemetry.metric_points(params, max_rows=256)
+        points, _ = self.telemetry.metric_points(rule.workspace_id, params, max_rows=256)
         if not points:
             return None
         return points[-1].value

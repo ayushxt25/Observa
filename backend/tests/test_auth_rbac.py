@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,15 +8,19 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_auth_repository
+from app.api.deps import get_api_key_repository
 from app.api.v1.routes import auth as auth_routes
 from app.api.v1.routes.alerts import get_alert_repository
 from app.api.v1.routes.dashboards import get_dashboard_repository
+from app.api.v1.routes.telemetry import get_ingestion_service
 from app.db.base import Base
 from app.main import app
-from app.models.auth import AuthSessionModel, UserModel
+from app.models.auth import AuthSessionModel, UserModel, WorkspaceApiKeyModel
 from app.repositories.auth import AuthRepository
 from app.repositories.alerts import AlertRepository
+from app.repositories.api_keys import ApiKeyRepository
 from app.repositories.dashboards import DashboardRepository
+from app.schemas.telemetry import IngestionResponse
 
 
 @pytest.fixture
@@ -27,6 +32,7 @@ def auth_client() -> Generator[tuple[TestClient, Session], None, None]:
     original_rate_limit = auth_routes.check_auth_rate_limit
     auth_routes.check_auth_rate_limit = lambda *args, **kwargs: None
     app.dependency_overrides[get_auth_repository] = lambda: AuthRepository(db)
+    app.dependency_overrides[get_api_key_repository] = lambda: ApiKeyRepository(db)
     app.dependency_overrides[get_dashboard_repository] = lambda: DashboardRepository(db)
     app.dependency_overrides[get_alert_repository] = lambda: AlertRepository(db)
     with TestClient(app) as client:
@@ -47,6 +53,27 @@ def auth_headers(result: dict[str, object], workspace_id: str | None = None) -> 
     assert isinstance(workspaces, list)
     selected = workspace_id or workspaces[0]["id"]
     return {"Authorization": f"Bearer {result['accessToken']}", "X-Workspace-Id": str(selected)}
+
+
+def event_payload(event_id: str = "event-1") -> dict[str, object]:
+    return {
+        "id": event_id,
+        "timestamp": "2026-08-09T00:00:00Z",
+        "service": "api-gateway",
+        "region": "us-east",
+        "latency": 100,
+        "throughput": 200,
+        "cpuUsage": 30,
+        "memoryUsage": 40,
+        "errorRate": 0,
+        "payloadSize": 100,
+        "status": "healthy",
+    }
+
+
+class FakeIngestionService:
+    async def ingest(self, workspace_id: str, events: list[object]) -> IngestionResponse:
+        return IngestionResponse(accepted_count=len(events), rejected_count=0, processing_duration_ms=1)
 
 
 def test_register_login_me_and_password_not_exposed(auth_client: tuple[TestClient, Session]) -> None:
@@ -210,3 +237,60 @@ def test_auth_schemas_reject_unknown_fields(auth_client: tuple[TestClient, Sessi
     client, _ = auth_client
     response = client.post("/api/v1/auth/register", json={"email": "strict@example.com", "password": "strong-password-123", "isActive": True})
     assert response.status_code == 422
+
+
+def test_workspace_api_key_lifecycle_and_permissions(auth_client: tuple[TestClient, Session]) -> None:
+    client, db = auth_client
+    owner = register(client, "key-owner@example.com")
+    workspace_id = owner["workspaces"][0]["id"]
+    created = client.post(f"/api/v1/workspaces/{workspace_id}/api-keys", json={"name": "Generator"}, headers=auth_headers(owner))
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["rawKey"].startswith("obs_live_")
+    assert "keyHash" not in body
+    stored = db.query(WorkspaceApiKeyModel).filter_by(id=body["id"]).one()
+    assert stored.key_hash != body["rawKey"]
+    listed = client.get(f"/api/v1/workspaces/{workspace_id}/api-keys", headers=auth_headers(owner))
+    assert listed.status_code == 200
+    assert "rawKey" not in listed.text and "keyHash" not in listed.text
+
+    viewer = register(client, "key-viewer@example.com")
+    add = client.post(f"/api/v1/workspaces/{workspace_id}/members", json={"email": "key-viewer@example.com", "role": "viewer"}, headers=auth_headers(owner))
+    assert add.status_code == 201
+    assert client.post(f"/api/v1/workspaces/{workspace_id}/api-keys", json={"name": "Nope"}, headers=auth_headers(viewer, str(workspace_id))).status_code == 403
+
+    revoked = client.delete(f"/api/v1/workspaces/{workspace_id}/api-keys/{body['id']}", headers=auth_headers(owner))
+    assert revoked.status_code == 204
+
+
+def test_workspace_api_key_ingestion_and_revocation(auth_client: tuple[TestClient, Session]) -> None:
+    client, _ = auth_client
+    owner = register(client, "ingest-key@example.com")
+    workspace_id = owner["workspaces"][0]["id"]
+    created = client.post(f"/api/v1/workspaces/{workspace_id}/api-keys", json={"name": "Generator"}, headers=auth_headers(owner))
+    raw_key = created.json()["rawKey"]
+    app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
+    assert client.post("/api/v1/telemetry", json={**event_payload(), "workspaceId": "attacker"}, headers={"Authorization": f"Bearer {raw_key}"}).status_code == 422
+    assert client.post("/api/v1/telemetry", json=event_payload(), headers={"Authorization": f"Bearer {raw_key}"}).status_code == 202
+    prefix_collision = raw_key.rsplit("_", 1)[0] + "_wrong-secret"
+    assert client.post("/api/v1/telemetry", json=event_payload("event-prefix"), headers={"Authorization": f"Bearer {prefix_collision}"}).status_code == 401
+    client.delete(f"/api/v1/workspaces/{workspace_id}/api-keys/{created.json()['id']}", headers=auth_headers(owner))
+    assert client.post("/api/v1/telemetry", json=event_payload("event-2"), headers={"Authorization": f"Bearer {raw_key}"}).status_code == 401
+
+
+def test_expired_workspace_api_key_is_rejected(auth_client: tuple[TestClient, Session]) -> None:
+    client, _ = auth_client
+    owner = register(client, "expired-key@example.com")
+    workspace_id = owner["workspaces"][0]["id"]
+    created = client.post(
+        f"/api/v1/workspaces/{workspace_id}/api-keys",
+        json={"name": "Expired", "expiresAt": (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()},
+        headers=auth_headers(owner),
+    )
+    assert created.status_code == 201
+    app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
+    assert client.post(
+        "/api/v1/telemetry",
+        json=event_payload("expired-key-event"),
+        headers={"Authorization": f"Bearer {created.json()['rawKey']}"},
+    ).status_code == 401

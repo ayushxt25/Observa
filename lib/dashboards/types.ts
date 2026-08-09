@@ -45,6 +45,7 @@ export interface WidgetDraft {
 }
 
 export interface MetricQueryKey {
+  workspaceId?: string;
   metric: MetricName;
   aggregation: WidgetAggregation;
   bucket: MetricBucket;

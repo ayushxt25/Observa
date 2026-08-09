@@ -8,6 +8,7 @@ import { ScatterPlot } from "@/components/charts/ScatterPlot";
 import { useDashboardConfig } from "@/hooks/useDashboardConfig";
 import { useTelemetryQuery } from "@/hooks/useTelemetryQuery";
 import { useDashboardControls } from "@/hooks/useDashboardControls";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { TelemetryApi, rangeToStart } from "@/lib/api/telemetry";
 import { ObservaApiClient } from "@/lib/api/client";
 import { getObservaApiUrl } from "@/lib/api/config";
@@ -54,19 +55,21 @@ function shouldUseBackendLine(widget: DashboardWidgetConfig, latestTimestamp: nu
 
 function useLinePoints(widget: DashboardWidgetConfig, telemetry: TelemetryQueryResult): AggregatedPoint[] {
   const { sourceKind } = useDashboardControls();
+  const { activeWorkspace } = useAuth();
   const filtered = useMemo(() => filterWidgetPoints(telemetry.allPoints, widget), [telemetry.allPoints, widget]);
   const [backendResult, setBackendResult] = useState<{ key: string; points: AggregatedPoint[] } | null>(null);
   const latestTimestamp = telemetry.latestTimestamp;
   const latestMinute = latestTimestamp === null ? 0 : Math.floor(latestTimestamp / 60_000);
   const queryKey = useMemo(() => buildMetricQueryKey({
     metric: widget.metric,
+    workspaceId: activeWorkspace?.id,
     aggregation: widget.aggregation,
     bucket: widget.bucket,
     service: widget.service,
     region: widget.region,
     timeRange: widget.timeRange,
     sourceVersion: latestMinute,
-  }), [latestMinute, widget]);
+  }), [activeWorkspace?.id, latestMinute, widget]);
   useEffect(() => {
     if (!shouldUseBackendLine(widget, latestTimestamp, sourceKind)) return undefined;
     let active = true;

@@ -29,6 +29,12 @@ def new_refresh_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+def new_api_key() -> tuple[str, str]:
+    prefix = secrets.token_urlsafe(9).replace("-", "").replace("_", "")[:12]
+    secret = secrets.token_urlsafe(36)
+    return prefix, f"obs_live_{prefix}_{secret}"
+
+
 def create_access_token(settings: Settings, user_id: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {

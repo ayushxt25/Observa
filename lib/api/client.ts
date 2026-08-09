@@ -22,6 +22,45 @@ export function setApiAuthFailureHandler(handler: (() => void) | null): void {
   onAuthFailure = handler;
 }
 
+export function getApiAuthHeaders(): Record<string, string> {
+  return {
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...(activeWorkspaceId ? { "X-Workspace-Id": activeWorkspaceId } : {}),
+  };
+}
+
+export function getActiveApiWorkspaceId(): string | null {
+  return activeWorkspaceId;
+}
+
+export async function refreshApiAccessToken(baseUrl: string): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${baseUrl.replace(/\/$/, "")}/api/v1/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: "{}",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new ObservaApiError(`Request failed with ${response.status}`, response.status);
+        return await response.json() as { accessToken: string };
+      })
+      .then((result) => {
+        setApiAccessToken(result.accessToken);
+        return result.accessToken;
+      })
+      .catch(() => {
+        setApiAccessToken(null);
+        onAuthFailure?.();
+        return null;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
 export interface ApiClientOptions {
   baseUrl: string;
   timeoutMs?: number;
@@ -69,8 +108,7 @@ export class ObservaApiClient {
         headers: {
           Accept: "application/json",
           ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-          ...(activeWorkspaceId ? { "X-Workspace-Id": activeWorkspaceId } : {}),
+          ...getApiAuthHeaders(),
           ...init.headers,
         },
       });
@@ -92,19 +130,7 @@ export class ObservaApiClient {
 
   private async refreshAccessToken(): Promise<string | null> {
     if (!refreshPromise) {
-      refreshPromise = this.post<{ accessToken: string }>("/api/v1/auth/refresh", {}, { headers: {} })
-        .then((result) => {
-          setApiAccessToken(result.accessToken);
-          return result.accessToken;
-        })
-        .catch(() => {
-          setApiAccessToken(null);
-          onAuthFailure?.();
-          return null;
-        })
-        .finally(() => {
-          refreshPromise = null;
-        });
+      refreshPromise = refreshApiAccessToken(this.baseUrl);
     }
     return refreshPromise;
   }

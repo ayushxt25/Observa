@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     auth_rate_limit_register: int = Field(default=10, ge=1, le=1000)
     auth_rate_limit_login: int = Field(default=20, ge=1, le=1000)
     auth_rate_limit_refresh: int = Field(default=60, ge=1, le=5000)
+    ingestion_rate_limit_per_minute: int = Field(default=600, ge=1, le=100_000)
 
     @property
     def allowed_origins(self) -> list[str]:

@@ -1,6 +1,6 @@
 # Observa Telemetry API Contract
 
-This document describes the Phase 2 backend contract. The current frontend simulator is not connected to this backend yet.
+This document describes the Observa backend telemetry contract used by remote dashboard mode.
 
 ## JSON Convention
 
@@ -29,6 +29,8 @@ Supported services: `api-gateway`, `auth-service`, `billing-service`, `search-se
 Supported regions: `us-east`, `us-west`, `eu-central`, `ap-south`.
 
 Supported statuses: `healthy`, `degraded`, `critical`.
+
+The `id` field is the client-supplied telemetry event identifier. It is unique per workspace, not globally unique. PostgreSQL uses an internal `db_id` primary key and enforces `UNIQUE(workspace_id, id)` so different workspaces may ingest the same external event id without conflict. Re-ingesting the same event id in the same workspace is idempotent and counts as zero newly accepted rows.
 
 ## Ingestion
 
@@ -101,7 +103,7 @@ Returns observed service names, the latest timestamp per service, and a recent e
 
 `GET /api/v1/telemetry`
 
-Used by `RemoteTelemetrySource` to hydrate and incrementally refresh the frontend `TelemetryStore`.
+Used by `RemoteTelemetrySource` to hydrate and incrementally refresh the frontend `TelemetryStore`. In Phase 8 this endpoint requires user JWT auth plus validated `X-Workspace-Id`.
 
 Supported query parameters:
 
@@ -151,7 +153,8 @@ Resume semantics:
 - The frontend first captures `/stream/cursor`, then hydrates recent history over HTTP, then opens SSE from that cursor.
 - Events ingested after the cursor are replayed from Redis, closing the hydration-to-stream race.
 - Browser reconnects can use SSE `Last-Event-ID`; the endpoint also accepts `cursor`.
-- Boundary duplicates are safe because `TelemetryStore` deduplicates by telemetry event id.
+- SSE `id:` is the Redis Stream cursor, distinct from each telemetry event payload `id`.
+- Boundary duplicates are safe because `TelemetryStore` deduplicates by telemetry event id within the active workspace lifecycle; workspace switches clear the store and reset the cursor.
 
 Keepalive comments are sent on idle reads:
 
@@ -166,11 +169,11 @@ event: stream-error
 data: {"message":"Redis stream unavailable"}
 ```
 
-Redis Stream retention is controlled by `TELEMETRY_STREAM_MAXLEN` and uses approximate max length. If a client falls behind retention, it should rehydrate via HTTP and reconnect from the current cursor.
+Redis Stream retention is controlled by `TELEMETRY_STREAM_MAXLEN` per workspace stream and uses approximate max length. If a client falls behind retention, it should rehydrate via HTTP and reconnect from the current cursor.
 
 Production notes:
 
-- Add auth before exposing SSE outside trusted environments.
+- SSE uses fetch-based clients with bearer access-token and `X-Workspace-Id` headers. Membership is revalidated periodically while streaming.
 - Configure proxies/load balancers to avoid buffering `text/event-stream`.
 - CORS must include the frontend origin.
 - Rate limits and connection limits are future hardening items.
@@ -230,7 +233,7 @@ Configuration APIs require bearer access tokens. Refresh tokens are HttpOnly coo
 - `GET|POST /api/v1/workspaces/{id}/members`
 - `PATCH|DELETE /api/v1/workspaces/{id}/members/{userId}`
 
-Dashboard, widget, alert and incident requests use `X-Workspace-Id` to select the active workspace. Telemetry ingestion, telemetry query and telemetry SSE remain unscoped in Phase 7.
+Dashboard, widget, alert, incident and telemetry read requests use `X-Workspace-Id` to select the active workspace. Telemetry ingestion uses workspace API keys; clients cannot submit `workspaceId` in telemetry payloads.
 
 | Role | Read config | Edit dashboards | Edit alerts | Manage members |
 | --- | --- | --- | --- | --- |
@@ -277,4 +280,4 @@ State machine:
 - If a firing rule clears, the active incident is resolved.
 - Cooldown prevents immediate reopen side effects after resolution; it does not hide an already-firing state.
 
-Current limitations: telemetry events are not workspace-scoped yet, and there are no notifications, acknowledgements, escalation, incident assignment, OAuth, password reset or billing flows.
+Current limitations: there are no notifications, acknowledgements, escalation, incident assignment, OAuth, password reset or billing flows.

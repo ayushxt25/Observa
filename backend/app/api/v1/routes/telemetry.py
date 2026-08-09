@@ -10,9 +10,12 @@ from pydantic import ValidationError
 from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_auth_repository, get_current_workspace, get_workspace_api_key
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.repositories.telemetry import TelemetryRepository
+from app.models.auth import WorkspaceApiKeyModel, WorkspaceMembershipModel
+from app.repositories.auth import AuthRepository
 from app.schemas.metrics import MetricQueryParams
 from app.schemas.telemetry import (
     IngestionResponse,
@@ -49,9 +52,10 @@ def get_ingestion_service(
 )
 async def ingest_event(
     event: TelemetryEventIn,
+    api_key: Annotated[WorkspaceApiKeyModel, Depends(get_workspace_api_key)],
     service: Annotated[IngestionService, Depends(get_ingestion_service)],
 ) -> IngestionResponse:
-    return await service.ingest([event])
+    return await service.ingest(api_key.workspace_id, [event])
 
 
 @router.post(
@@ -63,6 +67,7 @@ async def ingest_event(
 async def ingest_batch(
     batch: TelemetryBatchIn,
     settings: Annotated[Settings, Depends(get_settings)],
+    api_key: Annotated[WorkspaceApiKeyModel, Depends(get_workspace_api_key)],
     service: Annotated[IngestionService, Depends(get_ingestion_service)],
 ) -> IngestionResponse:
     if len(batch.events) > settings.max_ingest_batch_size:
@@ -70,13 +75,14 @@ async def ingest_batch(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Batch exceeds maximum of {settings.max_ingest_batch_size} events",
         )
-    return await service.ingest(batch.events)
+    return await service.ingest(api_key.workspace_id, batch.events)
 
 
 @router.get("", response_model=TelemetryEventsResponse, summary="Query raw telemetry events")
 def query_events(
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[Session, Depends(get_db)],
+    membership: Annotated[WorkspaceMembershipModel, Depends(get_current_workspace)],
     start: datetime | None = None,
     end: datetime | None = None,
     service: str | None = None,
@@ -95,7 +101,7 @@ def query_events(
         params.validate_range()
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    rows, limited = TelemetryRepository(db).events(params, effective_limit, latest=start is None)
+    rows, limited = TelemetryRepository(db).events(membership.workspace_id, params, effective_limit, latest=start is None)
     events = [
         TelemetryEventOut(
             id=row.id,
@@ -119,9 +125,10 @@ def query_events(
 @router.get("/stream/cursor", summary="Get the current telemetry stream cursor")
 async def stream_cursor(
     broker: Annotated[TelemetryBroker, Depends(get_broker)],
+    membership: Annotated[WorkspaceMembershipModel, Depends(get_current_workspace)],
 ) -> dict[str, str]:
     try:
-        return {"cursor": await broker.latest_id()}
+        return {"cursor": await broker.latest_id(membership.workspace_id)}
     except RedisError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Redis stream unavailable") from exc
 
@@ -130,6 +137,8 @@ async def stream_cursor(
 async def stream_events(
     request: Request,
     broker: Annotated[TelemetryBroker, Depends(get_broker)],
+    membership: Annotated[WorkspaceMembershipModel, Depends(get_current_workspace)],
+    repo: Annotated[AuthRepository, Depends(get_auth_repository)],
     cursor: str | None = None,
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse:
@@ -140,12 +149,19 @@ async def stream_events(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     async def event_generator():
-        logger.info("telemetry_stream_connect cursor=%s", start_cursor)
+        workspace_id = membership.workspace_id
+        user_id = membership.user_id
+        logger.info("telemetry_stream_connect workspace_id=%s cursor=%s", workspace_id, start_cursor)
         yield "retry: 5000\n\n"
+        read_count = 0
         try:
-            async for stream_id, events in broker.read_batches(start_cursor):
+            async for stream_id, events in broker.read_batches(workspace_id, start_cursor):
                 if await request.is_disconnected():
-                    logger.info("telemetry_stream_disconnect cursor=%s", stream_id)
+                    logger.info("telemetry_stream_disconnect workspace_id=%s cursor=%s", workspace_id, stream_id)
+                    break
+                read_count += 1
+                if read_count % 4 == 0 and repo.get_membership(user_id, workspace_id) is None:
+                    logger.info("telemetry_stream_membership_revoked workspace_id=%s user_id=%s", workspace_id, user_id)
                     break
                 if not events:
                     yield ": keepalive\n\n"
@@ -153,15 +169,15 @@ async def stream_events(
                 payload = json.dumps({"events": events}, separators=(",", ":"))
                 yield f"id: {stream_id}\nevent: telemetry\ndata: {payload}\n\n"
         except RedisError as exc:
-            logger.warning("telemetry_stream_redis_failed cursor=%s error=%s", start_cursor, exc)
+            logger.warning("telemetry_stream_redis_failed workspace_id=%s cursor=%s error=%s", workspace_id, start_cursor, exc)
             yield "retry: 5000\nevent: stream-error\ndata: {\"message\":\"Redis stream unavailable\"}\n\n"
             await asyncio.sleep(5)
         except Exception as exc:
-            logger.exception("telemetry_stream_failed cursor=%s error=%s", start_cursor, exc)
+            logger.exception("telemetry_stream_failed workspace_id=%s cursor=%s error=%s", workspace_id, start_cursor, exc)
             yield "retry: 5000\nevent: stream-error\ndata: {\"message\":\"Telemetry stream failed\"}\n\n"
             await asyncio.sleep(5)
         finally:
-            logger.info("telemetry_stream_closed cursor=%s", start_cursor)
+            logger.info("telemetry_stream_closed workspace_id=%s cursor=%s", workspace_id, start_cursor)
 
     return StreamingResponse(
         event_generator(),

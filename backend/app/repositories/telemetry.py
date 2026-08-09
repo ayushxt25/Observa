@@ -30,10 +30,25 @@ class TelemetryRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def insert_batch(self, events: list[TelemetryEventIn]) -> int:
-        rows = [
-            {
+    def insert_batch(self, workspace_id: str, events: list[TelemetryEventIn]) -> list[TelemetryEventIn]:
+        requested_ids = list(dict.fromkeys(event.id for event in events))
+        existing_ids = set(self.db.scalars(
+            select(TelemetryEventModel.id).where(
+                TelemetryEventModel.workspace_id == workspace_id,
+                TelemetryEventModel.id.in_(requested_ids),
+            )
+        ).all()) if requested_ids else set()
+        seen: set[str] = set()
+        accepted_events: list[TelemetryEventIn] = []
+        rows: list[dict[str, Any]] = []
+        for event in events:
+            if event.id in existing_ids or event.id in seen:
+                continue
+            seen.add(event.id)
+            accepted_events.append(event)
+            rows.append({
                 "id": event.id,
+                "workspace_id": workspace_id,
                 "timestamp": event.timestamp,
                 "service": event.service,
                 "region": event.region,
@@ -44,20 +59,21 @@ class TelemetryRepository:
                 "error_rate": event.error_rate,
                 "payload_size": event.payload_size,
                 "status": event.status,
-            }
-            for event in events
-        ]
+            })
+        if not rows:
+            return []
         self.db.execute(insert(TelemetryEventModel), rows)
-        return len(rows)
+        return accepted_events
 
-    def metric_points(self, query: MetricQueryParams, max_rows: int) -> tuple[list[MetricPoint], bool]:
-        filters = self._filters(query)
+    def metric_points(self, workspace_id: str, query: MetricQueryParams, max_rows: int) -> tuple[list[MetricPoint], bool]:
+        filters = self._filters(workspace_id, query)
         if query.bucket == "raw":
             return self._raw_metric_points(query.metric, filters, max_rows)
         return self._bucketed_metric_points(query, filters, max_rows)
 
     def events(
         self,
+        workspace_id: str,
         query: MetricQueryParams,
         max_rows: int,
         *,
@@ -69,14 +85,14 @@ class TelemetryRepository:
             else (TelemetryEventModel.timestamp.asc(), TelemetryEventModel.id.asc())
         )
         stmt = select(TelemetryEventModel).order_by(*order)
-        stmt = self._where(stmt, self._filters(query)).limit(max_rows + 1)
+        stmt = self._where(stmt, self._filters(workspace_id, query)).limit(max_rows + 1)
         rows = list(self.db.scalars(stmt).all())
         selected = rows[:max_rows]
         if latest:
             selected.reverse()
         return selected, len(rows) > max_rows
 
-    def service_summaries(self, recent_window_minutes: int = 60) -> list[ServiceSummary]:
+    def service_summaries(self, workspace_id: str, recent_window_minutes: int = 60) -> list[ServiceSummary]:
         recent_since = datetime.now(timezone.utc) - timedelta(minutes=recent_window_minutes)
         stmt = (
             select(
@@ -84,6 +100,7 @@ class TelemetryRepository:
                 func.max(TelemetryEventModel.timestamp),
                 func.sum(case((TelemetryEventModel.timestamp >= recent_since, 1), else_=0)),
             )
+            .where(TelemetryEventModel.workspace_id == workspace_id)
             .group_by(TelemetryEventModel.service)
             .order_by(TelemetryEventModel.service)
         )
@@ -93,8 +110,8 @@ class TelemetryRepository:
             for row in rows
         ]
 
-    def _filters(self, query: MetricQueryParams) -> list[Any]:
-        filters: list[Any] = []
+    def _filters(self, workspace_id: str, query: MetricQueryParams) -> list[Any]:
+        filters: list[Any] = [TelemetryEventModel.workspace_id == workspace_id]
         if query.start is not None:
             filters.append(TelemetryEventModel.timestamp >= query.start)
         if query.end is not None:

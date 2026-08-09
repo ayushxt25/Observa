@@ -12,6 +12,7 @@ from app.api.deps import get_auth_repository
 from app.db.base import Base
 from app.main import app
 from app.models.alerts import IncidentModel
+from app.models.auth import WorkspaceModel
 from app.models.telemetry import TelemetryEventModel
 from app.repositories.alerts import AlertRepository
 from app.repositories.auth import AuthRepository
@@ -59,8 +60,11 @@ def payload(threshold: float = 1000, enabled: bool = True) -> dict[str, object]:
 
 def insert_point(db: Session, latency: float) -> None:
     now = datetime.now(timezone.utc)
+    workspace_id = db.scalars(select(WorkspaceModel.id)).first()
+    assert workspace_id is not None
     db.add(TelemetryEventModel(
         id=f"alert-test-{latency}-{now.timestamp()}",
+        workspace_id=workspace_id,
         timestamp=now,
         service="api-gateway",
         region="us-east",

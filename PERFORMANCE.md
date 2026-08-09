@@ -64,7 +64,7 @@ The dashboard page is a Server Component that generates the initial serializable
 
 `RemoteTelemetrySource` implements the same source contract for the FastAPI backend. It polls capped raw telemetry results, maps API DTOs into frontend telemetry events, cancels stale requests with `AbortController`, exposes connection status, and feeds `TelemetryStore` rather than bypassing it. Non-raw latency aggregation in remote mode can use the backend SQL metric query endpoint; charts still consume render-ready frontend data.
 
-Remote mode now hydrates capped history over HTTP and uses Server-Sent Events for incremental raw telemetry batches. The SSE endpoint reads Redis Streams with blocking reads and keepalive comments; it does not poll PostgreSQL for live delivery.
+Remote mode now hydrates capped workspace history over HTTP and uses authenticated Server-Sent Events for incremental raw telemetry batches. The SSE endpoint reads workspace Redis Streams with blocking reads and keepalive comments; it does not poll PostgreSQL for live delivery.
 
 Remote raw event queries are capped server-side and fallback polling uses timestamp watermarks. `TelemetryStore` deduplicates by event id before appending to the bounded ring buffer, so repeated boundary records do not grow retained client data.
 
@@ -105,11 +105,11 @@ The frontend alert panel polls rule and incident state at a modest interval. It 
 
 Auth state is held in a low-frequency React context separate from telemetry storage and chart rendering. API requests attach an in-memory access token and active workspace id; concurrent `401` responses share one refresh request and retry once. Workspace switches reload dashboard and alert configuration but do not restart telemetry sources or chart pipelines.
 
-Backend RBAC uses indexed membership lookups plus workspace foreign keys on dashboards, alert rules and incidents. Telemetry queries remain unchanged in Phase 7, so the high-frequency ingestion and SSE paths are not affected by workspace configuration tenancy.
+Backend RBAC uses indexed membership lookups plus workspace foreign keys on dashboards, alert rules, incidents and telemetry. Telemetry read paths require the active workspace, while machine ingestion derives workspace identity from API keys.
 
 ## Live Streaming Strategy
 
-Ingestion commits to PostgreSQL first, then publishes the accepted batch to Redis Stream `telemetry:events`. A Redis publish failure does not roll back durable ingestion. SSE clients read directly from Redis using blocking `XREAD`, avoiding unbounded per-client queues. Slow clients that fall behind Redis retention should perform HTTP rehydration and reconnect from the current cursor.
+Ingestion commits to PostgreSQL first, then publishes the accepted batch to Redis Stream `telemetry:events:{workspaceId}`. A Redis publish failure does not roll back durable ingestion. SSE clients read directly from the active workspace stream using blocking `XREAD`, avoiding unbounded per-client queues. Slow clients that fall behind Redis retention should perform HTTP rehydration and reconnect from the current cursor.
 
 ## Virtualization Strategy
 
