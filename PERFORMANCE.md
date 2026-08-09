@@ -101,6 +101,12 @@ State transitions and incident writes happen in one SQLAlchemy transaction. A pa
 
 The frontend alert panel polls rule and incident state at a modest interval. It does not evaluate alert conditions in the browser and does not create additional SSE connections.
 
+## Auth And Tenancy Performance
+
+Auth state is held in a low-frequency React context separate from telemetry storage and chart rendering. API requests attach an in-memory access token and active workspace id; concurrent `401` responses share one refresh request and retry once. Workspace switches reload dashboard and alert configuration but do not restart telemetry sources or chart pipelines.
+
+Backend RBAC uses indexed membership lookups plus workspace foreign keys on dashboards, alert rules and incidents. Telemetry queries remain unchanged in Phase 7, so the high-frequency ingestion and SSE paths are not affected by workspace configuration tenancy.
+
 ## Live Streaming Strategy
 
 Ingestion commits to PostgreSQL first, then publishes the accepted batch to Redis Stream `telemetry:events`. A Redis publish failure does not roll back durable ingestion. SSE clients read directly from Redis using blocking `XREAD`, avoiding unbounded per-client queues. Slow clients that fall behind Redis retention should perform HTTP rehydration and reconnect from the current cursor.

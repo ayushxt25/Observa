@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useDashboardConfig } from "@/hooks/useDashboardConfig";
+import { useAuth } from "@/components/providers/AuthProvider";
 import type { MetricName } from "@/lib/types";
 import type { WidgetDraft, WidgetType } from "@/lib/dashboards/types";
 
@@ -10,11 +11,12 @@ const metrics: MetricName[] = ["latency", "throughput", "cpuUsage", "memoryUsage
 
 export function DashboardSelector() {
   const config = useDashboardConfig();
+  const auth = useAuth();
   const [name, setName] = useState("");
   const [rename, setRename] = useState("");
   const [draft, setDraft] = useState<WidgetDraft>({ title: "New latency widget", type: "line", metric: "latency", aggregation: "avg", bucket: "1m", timeRange: "15m" });
   const active = config.activeDashboard;
-  const canEdit = !active.system;
+  const canEdit = !active.system && auth.activeWorkspace?.role !== "viewer";
   const status = useMemo(() => {
     if (config.loading) return "Loading dashboards...";
     if (config.error) return "Saved dashboards unavailable";

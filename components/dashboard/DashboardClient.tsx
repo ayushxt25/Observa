@@ -3,6 +3,9 @@
 import { lazy, memo, Suspense } from "react";
 import { DashboardConfigProvider } from "@/components/providers/DashboardConfigProvider";
 import { DataProvider } from "@/components/providers/DataProvider";
+import { AuthProvider } from "@/components/providers/AuthProvider";
+import { AuthGate } from "@/components/auth/AuthGate";
+import { WorkspaceSwitcher } from "@/components/auth/WorkspaceSwitcher";
 import { FilterPanel } from "@/components/controls/FilterPanel";
 import { TimeRangeSelector } from "@/components/controls/TimeRangeSelector";
 import { DataTable } from "@/components/ui/DataTable";
@@ -25,6 +28,7 @@ function DashboardSurface() {
   return (
     <main className="dashboard-page">
       <DashboardHeader />
+      <WorkspaceSwitcher />
       <MetricCards />
       <section className="controls-grid">
         <FilterPanel />
@@ -49,10 +53,14 @@ function DashboardSurface() {
 
 export function DashboardClient({ initialData }: { initialData: TelemetryPoint[] }) {
   return (
-    <DataProvider initialData={initialData}>
-      <DashboardConfigProvider>
-        <DashboardSurface />
-      </DashboardConfigProvider>
-    </DataProvider>
+    <AuthProvider>
+      <AuthGate>
+        <DataProvider initialData={initialData}>
+          <DashboardConfigProvider>
+            <DashboardSurface />
+          </DashboardConfigProvider>
+        </DataProvider>
+      </AuthGate>
+    </AuthProvider>
   );
 }

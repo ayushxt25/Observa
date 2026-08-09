@@ -12,11 +12,13 @@ class AlertRuleModel(Base):
     __table_args__ = (
         Index("ix_alert_rules_enabled_due", "enabled", "last_evaluated_at"),
         Index("ix_alert_rules_metric_service", "metric", "service"),
+        Index("ix_alert_rules_workspace_created", "workspace_id", "created_at"),
         CheckConstraint("evaluation_interval_seconds >= 5", name="ck_alert_rules_evaluation_interval_min"),
         CheckConstraint("cooldown_seconds >= 0", name="ck_alert_rules_cooldown_non_negative"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(140), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text)
     metric: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -46,6 +48,7 @@ class IncidentModel(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     alert_rule_id: Mapped[str] = mapped_column(String(36), ForeignKey("alert_rules.id", ondelete="CASCADE"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

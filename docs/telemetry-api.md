@@ -216,6 +216,29 @@ Supported widget types are `line`, `bar`, `scatter`, `heatmap`, and `stat`. Supp
 
 Alert rules are backend-owned and evaluated asynchronously by Celery. JSON uses camelCase. Celery scans for due rules every 5 seconds by default; rule evaluation intervals must be at least 5 seconds.
 
+## Authentication And Workspaces
+
+Configuration APIs require bearer access tokens. Refresh tokens are HttpOnly cookies and are never returned in JSON.
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+- `GET /api/v1/auth/me`
+- `GET|POST /api/v1/workspaces`
+- `GET|PATCH /api/v1/workspaces/{id}`
+- `GET|POST /api/v1/workspaces/{id}/members`
+- `PATCH|DELETE /api/v1/workspaces/{id}/members/{userId}`
+
+Dashboard, widget, alert and incident requests use `X-Workspace-Id` to select the active workspace. Telemetry ingestion, telemetry query and telemetry SSE remain unscoped in Phase 7.
+
+| Role | Read config | Edit dashboards | Edit alerts | Manage members |
+| --- | --- | --- | --- | --- |
+| owner | yes | yes | yes | yes |
+| admin | yes | yes | yes | non-owner roles |
+| member | yes | yes | yes | no |
+| viewer | yes | no | no | no |
+
 Endpoints:
 
 - `GET /api/v1/alerts`
@@ -254,4 +277,4 @@ State machine:
 - If a firing rule clears, the active incident is resolved.
 - Cooldown prevents immediate reopen side effects after resolution; it does not hide an already-firing state.
 
-Current limitations: no auth, RBAC, workspaces, notifications, acknowledgements, escalation or incident assignment.
+Current limitations: telemetry events are not workspace-scoped yet, and there are no notifications, acknowledgements, escalation, incident assignment, OAuth, password reset or billing flows.

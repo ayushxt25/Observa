@@ -5,6 +5,23 @@ export class ObservaApiError extends Error {
   }
 }
 
+let accessToken: string | null = null;
+let activeWorkspaceId: string | null = null;
+let refreshPromise: Promise<string | null> | null = null;
+let onAuthFailure: (() => void) | null = null;
+
+export function setApiAccessToken(token: string | null): void {
+  accessToken = token;
+}
+
+export function setApiWorkspaceId(workspaceId: string | null): void {
+  activeWorkspaceId = workspaceId;
+}
+
+export function setApiAuthFailureHandler(handler: (() => void) | null): void {
+  onAuthFailure = handler;
+}
+
 export interface ApiClientOptions {
   baseUrl: string;
   timeoutMs?: number;
@@ -35,7 +52,7 @@ export class ObservaApiClient {
     await this.request<void>("DELETE", path, undefined, init);
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, init: RequestInit = {}): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, init: RequestInit = {}, retried = false): Promise<T> {
     if (!this.baseUrl) throw new ObservaApiError("Remote API URL is not configured");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -46,10 +63,21 @@ export class ObservaApiClient {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,
         method,
+        credentials: "include",
         signal: controller.signal,
         body: body === undefined ? undefined : JSON.stringify(body),
-        headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...init.headers },
+        headers: {
+          Accept: "application/json",
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(activeWorkspaceId ? { "X-Workspace-Id": activeWorkspaceId } : {}),
+          ...init.headers,
+        },
       });
+      if (response.status === 401 && !retried && !path.includes("/api/v1/auth/")) {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) return this.request<T>(method, path, body, init, true);
+      }
       if (!response.ok) throw new ObservaApiError(`Request failed with ${response.status}`, response.status);
       if (response.status === 204) return undefined as T;
       return await response.json() as T;
@@ -60,5 +88,24 @@ export class ObservaApiClient {
       clearTimeout(timeout);
       if (upstream) upstream.removeEventListener("abort", abortFromUpstream);
     }
+  }
+
+  private async refreshAccessToken(): Promise<string | null> {
+    if (!refreshPromise) {
+      refreshPromise = this.post<{ accessToken: string }>("/api/v1/auth/refresh", {}, { headers: {} })
+        .then((result) => {
+          setApiAccessToken(result.accessToken);
+          return result.accessToken;
+        })
+        .catch(() => {
+          setApiAccessToken(null);
+          onAuthFailure?.();
+          return null;
+        })
+        .finally(() => {
+          refreshPromise = null;
+        });
+    }
+    return refreshPromise;
   }
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertsApi } from "@/lib/api/alerts";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { validateAlertDraft } from "@/lib/alerts/validation";
 import type { AlertAggregation, AlertBucket, AlertOperator, AlertRule, AlertRuleDraft, Incident } from "@/lib/alerts/types";
 import type { MetricName, Region, ServiceId } from "@/lib/types";
@@ -30,11 +31,14 @@ function formatDate(value?: string): string {
 
 export function AlertsPanel() {
   const api = useMemo(() => new AlertsApi(), []);
+  const auth = useAuth();
+  const activeWorkspaceId = auth.activeWorkspace?.id;
   const [alerts, setAlerts] = useState<AlertRule[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [draft, setDraft] = useState<AlertRuleDraft>(initialDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const canEdit = auth.activeWorkspace?.role !== "viewer";
   const latestRequestRef = useRef(0);
   const pollingInFlightRef = useRef(false);
 
@@ -59,14 +63,18 @@ export function AlertsPanel() {
 
   useEffect(() => {
     const controller = new AbortController();
-    const initial = window.setTimeout(() => void reload(controller.signal), 0);
+    const initial = window.setTimeout(() => {
+      setAlerts([]);
+      setIncidents([]);
+      void reload(controller.signal);
+    }, 0);
     const timer = window.setInterval(() => void reload(controller.signal, true), 10_000);
     return () => {
       controller.abort();
       window.clearTimeout(initial);
       window.clearInterval(timer);
     };
-  }, [reload]);
+  }, [activeWorkspaceId, reload]);
 
   const save = async () => {
     const validation = validateAlertDraft(draft);
@@ -118,7 +126,7 @@ export function AlertsPanel() {
         <label>Window<input aria-label="Alert evaluation window" type="number" value={draft.evaluationWindowSeconds} onChange={(event) => setDraft((current) => ({ ...current, evaluationWindowSeconds: Number(event.target.value) }))} /></label>
         <label>Interval<input aria-label="Alert evaluation interval" type="number" value={draft.evaluationIntervalSeconds} onChange={(event) => setDraft((current) => ({ ...current, evaluationIntervalSeconds: Number(event.target.value) }))} /></label>
         <label>Cooldown<input aria-label="Alert cooldown" type="number" value={draft.cooldownSeconds} onChange={(event) => setDraft((current) => ({ ...current, cooldownSeconds: Number(event.target.value) }))} /></label>
-        <button type="button" onClick={() => void save()}>{editingId ? "Save alert" : "Create alert"}</button>
+        <button type="button" disabled={!canEdit} onClick={() => void save()}>{editingId ? "Save alert" : "Create alert"}</button>
       </div>
       <div className="alerts-grid">
         <div className="alert-list">
@@ -128,10 +136,10 @@ export function AlertsPanel() {
               <span>{rule.metric} {rule.operator} {rule.threshold} / {rule.state}</span>
               <span>Evaluated {formatDate(rule.lastEvaluatedAt)}</span>
               <div>
-                <button type="button" onClick={() => edit(rule)}>Edit</button>
-                <button type="button" onClick={() => void api.updateAlert(rule.id, { enabled: !rule.enabled }).then(() => reload()).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Alert update failed"))}>{rule.enabled ? "Disable" : "Enable"}</button>
-                <button type="button" onClick={() => void api.evaluateAlert(rule.id).then(() => reload()).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Alert evaluation failed"))}>Evaluate</button>
-                <button type="button" className="danger" onClick={() => void api.deleteAlert(rule.id).then(() => reload()).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Alert delete failed"))}>Delete</button>
+                <button type="button" disabled={!canEdit} onClick={() => edit(rule)}>Edit</button>
+                <button type="button" disabled={!canEdit} onClick={() => void api.updateAlert(rule.id, { enabled: !rule.enabled }).then(() => reload()).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Alert update failed"))}>{rule.enabled ? "Disable" : "Enable"}</button>
+                <button type="button" disabled={!canEdit} onClick={() => void api.evaluateAlert(rule.id).then(() => reload()).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Alert evaluation failed"))}>Evaluate</button>
+                <button type="button" disabled={!canEdit} className="danger" onClick={() => void api.deleteAlert(rule.id).then(() => reload()).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Alert delete failed"))}>Delete</button>
               </div>
             </article>
           ))}

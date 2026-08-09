@@ -8,12 +8,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.v1.routes.alerts import get_alert_evaluator, get_alert_repository
+from app.api.deps import get_auth_repository
 from app.db.base import Base
 from app.main import app
 from app.models.alerts import IncidentModel
 from app.models.telemetry import TelemetryEventModel
 from app.repositories.alerts import AlertRepository
+from app.repositories.auth import AuthRepository
 from app.services.alerts import AlertEvaluationService, compare_value
+from tests.auth_helpers import authenticate_test_client
 
 
 @pytest.fixture
@@ -32,7 +35,9 @@ def alert_db() -> Generator[Session, None, None]:
 def alert_client(alert_db: Session) -> Generator[TestClient, None, None]:
     app.dependency_overrides[get_alert_repository] = lambda: AlertRepository(alert_db)
     app.dependency_overrides[get_alert_evaluator] = lambda: AlertEvaluationService(alert_db)
+    app.dependency_overrides[get_auth_repository] = lambda: AuthRepository(alert_db)
     with TestClient(app) as client:
+        authenticate_test_client(client, alert_db)
         yield client
     app.dependency_overrides.clear()
 

@@ -40,6 +40,9 @@ services:
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002,https://performance-dashboard-rose.vercel.app
       TELEMETRY_STREAM_MAXLEN: 100000
       ALERT_SCAN_INTERVAL_SECONDS: 5
+      JWT_SECRET_KEY: dev-docker-change-me
+      COOKIE_SECURE: false
+      COOKIE_SAMESITE: lax
     ports:
       - "8001:8000"
     depends_on:
@@ -62,6 +65,7 @@ services:
       DATABASE_URL: postgresql+psycopg://observa:observa@postgres:5432/observa
       REDIS_URL: redis://redis:6379/0
       ALERT_SCAN_INTERVAL_SECONDS: 5
+      JWT_SECRET_KEY: dev-docker-change-me
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,6 +84,7 @@ services:
       DATABASE_URL: postgresql+psycopg://observa:observa@postgres:5432/observa
       REDIS_URL: redis://redis:6379/0
       ALERT_SCAN_INTERVAL_SECONDS: 5
+      JWT_SECRET_KEY: dev-docker-change-me
     depends_on:
       redis:
         condition: service_healthy

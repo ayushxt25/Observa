@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DashboardApi } from "@/lib/api/dashboards";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { defaultDashboard, DEFAULT_DASHBOARD_ID } from "@/lib/dashboards/defaultDashboard";
 import type { DashboardConfig, DashboardWidgetConfig, WidgetDraft } from "@/lib/dashboards/types";
 
@@ -29,38 +30,48 @@ interface DashboardConfigActions {
 export const DashboardConfigContext = createContext<(DashboardConfigState & DashboardConfigActions) | null>(null);
 
 export function DashboardConfigProvider({ children }: { children: ReactNode }) {
+  const auth = useAuth();
   const [persisted, setPersisted] = useState<DashboardConfig[]>([]);
   const [selectedId, setSelectedId] = useState(DEFAULT_DASHBOARD_ID);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const api = useMemo(() => new DashboardApi(), []);
+  const loadSequence = useRef(0);
+  const activeWorkspaceId = auth.activeWorkspace?.id ?? "default";
   const dashboards = useMemo(() => [defaultDashboard, ...persisted], [persisted]);
   const activeDashboard = dashboards.find((dashboard) => dashboard.id === selectedId) ?? defaultDashboard;
 
   const reloadDashboards = useCallback(async () => {
+    const requestId = ++loadSequence.current;
     setLoading(true);
     try {
       const loaded = await api.list();
+      if (requestId !== loadSequence.current) return;
       setPersisted(loaded);
       setError(null);
-      const stored = typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_KEY);
+      const stored = typeof window === "undefined" ? null : window.localStorage.getItem(`${SELECTED_KEY}:${activeWorkspaceId}`);
       if (stored && (stored === DEFAULT_DASHBOARD_ID || loaded.some((dashboard) => dashboard.id === stored))) setSelectedId(stored);
     } catch (err) {
+      if (requestId !== loadSequence.current) return;
       setError(err instanceof Error ? err.message : "Dashboard API unavailable");
     } finally {
-      setLoading(false);
+      if (requestId === loadSequence.current) setLoading(false);
     }
-  }, [api]);
+  }, [activeWorkspaceId, api]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void reloadDashboards(), 0);
+    const timer = window.setTimeout(() => {
+      setPersisted([]);
+      setSelectedId(DEFAULT_DASHBOARD_ID);
+      void reloadDashboards();
+    }, 0);
     return () => window.clearTimeout(timer);
   }, [reloadDashboards]);
 
   const selectDashboard = useCallback((id: string) => {
     setSelectedId(id);
-    window.localStorage.setItem(SELECTED_KEY, id);
-  }, []);
+    window.localStorage.setItem(`${SELECTED_KEY}:${activeWorkspaceId}`, id);
+  }, [activeWorkspaceId]);
 
   const createDashboard = useCallback(async (name: string) => {
     try {

@@ -7,10 +7,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.v1.routes.dashboards import get_dashboard_repository
+from app.api.deps import get_auth_repository
 from app.db.base import Base
 from app.main import app
 from app.models.dashboard import DashboardWidgetModel
 from app.repositories.dashboards import DashboardRepository
+from app.repositories.auth import AuthRepository
+from tests.auth_helpers import authenticate_test_client
 
 
 @pytest.fixture
@@ -26,8 +29,21 @@ def dashboard_client() -> Generator[TestClient, None, None]:
         finally:
             db.close()
 
+    def override_auth_repo() -> Generator[AuthRepository, None, None]:
+        db: Session = session_local()
+        try:
+            yield AuthRepository(db)
+        finally:
+            db.close()
+
     app.dependency_overrides[get_dashboard_repository] = override_repo
+    app.dependency_overrides[get_auth_repository] = override_auth_repo
     with TestClient(app) as client:
+        seed_db: Session = session_local()
+        try:
+            authenticate_test_client(client, seed_db)
+        finally:
+            seed_db.close()
         yield client
     app.dependency_overrides.clear()
 

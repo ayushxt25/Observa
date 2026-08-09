@@ -11,17 +11,22 @@ class AlertRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list_rules(self) -> list[AlertRuleModel]:
-        return list(self.db.scalars(select(AlertRuleModel).order_by(AlertRuleModel.created_at.desc(), AlertRuleModel.name)).all())
+    def list_rules(self, workspace_id: str | None = None) -> list[AlertRuleModel]:
+        stmt = select(AlertRuleModel).order_by(AlertRuleModel.created_at.desc(), AlertRuleModel.name)
+        if workspace_id is not None:
+            stmt = stmt.where(AlertRuleModel.workspace_id == workspace_id)
+        return list(self.db.scalars(stmt).all())
 
-    def get_rule(self, rule_id: str, *, for_update: bool = False) -> AlertRuleModel | None:
+    def get_rule(self, rule_id: str, *, workspace_id: str | None = None, for_update: bool = False) -> AlertRuleModel | None:
         stmt = select(AlertRuleModel).where(AlertRuleModel.id == rule_id)
+        if workspace_id is not None:
+            stmt = stmt.where(AlertRuleModel.workspace_id == workspace_id)
         if for_update:
             stmt = stmt.with_for_update()
         return self.db.scalars(stmt).first()
 
-    def create_rule(self, payload: AlertRuleCreate) -> AlertRuleModel:
-        rule = AlertRuleModel(**payload.model_dump())
+    def create_rule(self, payload: AlertRuleCreate, workspace_id: str) -> AlertRuleModel:
+        rule = AlertRuleModel(**payload.model_dump(), workspace_id=workspace_id)
         self.db.add(rule)
         self.db.commit()
         self.db.refresh(rule)
@@ -71,6 +76,7 @@ class AlertRepository:
     def create_incident(self, rule: AlertRuleModel, value: float, now: datetime) -> IncidentModel:
         incident = IncidentModel(
             alert_rule_id=rule.id,
+            workspace_id=rule.workspace_id,
             status="firing",
             opened_at=now,
             triggering_value=value,
@@ -87,11 +93,14 @@ class AlertRepository:
         alert_rule_id: str | None = None,
         service: str | None = None,
         recent_hours: int | None = None,
+        workspace_id: str | None = None,
     ) -> list[IncidentModel]:
         stmt = select(IncidentModel).options(joinedload(IncidentModel.alert_rule)).order_by(IncidentModel.status, IncidentModel.opened_at.desc())
         filters = []
         if status:
             filters.append(IncidentModel.status == status)
+        if workspace_id:
+            filters.append(IncidentModel.workspace_id == workspace_id)
         if alert_rule_id:
             filters.append(IncidentModel.alert_rule_id == alert_rule_id)
         if service:
@@ -103,8 +112,11 @@ class AlertRepository:
             stmt = stmt.where(and_(*filters))
         return list(self.db.scalars(stmt).all())
 
-    def get_incident(self, incident_id: str) -> IncidentModel | None:
-        return self.db.scalars(select(IncidentModel).options(joinedload(IncidentModel.alert_rule)).where(IncidentModel.id == incident_id)).first()
+    def get_incident(self, incident_id: str, workspace_id: str | None = None) -> IncidentModel | None:
+        stmt = select(IncidentModel).options(joinedload(IncidentModel.alert_rule)).where(IncidentModel.id == incident_id)
+        if workspace_id is not None:
+            stmt = stmt.where(IncidentModel.workspace_id == workspace_id)
+        return self.db.scalars(stmt).first()
 
     def _validate_bucket_window(self, bucket: str, window: int) -> None:
         if bucket == "1m" and window < 60:

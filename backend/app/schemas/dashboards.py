@@ -81,6 +81,7 @@ class DashboardPatch(ApiModel):
 
 class DashboardOut(DashboardBase):
     id: str
+    workspace_id: str
     created_at: datetime
     updated_at: datetime
     widgets: list[DashboardWidgetOut] = Field(default_factory=list)

@@ -380,6 +380,35 @@ input:disabled {
   margin-bottom: 16px;
 }
 
+.auth-page {
+  min-height: 100vh;
+  place-items: center;
+}
+
+.auth-panel {
+  display: grid;
+  gap: 12px;
+  max-width: 460px;
+  width: min(100%, 460px);
+}
+
+.auth-actions,
+.workspace-panel {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workspace-panel {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.workspace-panel label {
+  min-width: min(100%, 260px);
+}
+
 .alert-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));

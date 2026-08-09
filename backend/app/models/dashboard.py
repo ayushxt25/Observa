@@ -9,8 +9,10 @@ from app.db.base import Base
 
 class DashboardModel(Base):
     __tablename__ = "dashboards"
+    __table_args__ = (Index("ix_dashboards_workspace_updated", "workspace_id", "updated_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

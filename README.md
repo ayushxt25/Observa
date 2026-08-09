@@ -206,6 +206,8 @@ Phase 4 adds live Server-Sent Events. `RemoteTelemetrySource` hydrates a bounded
 Phase 5 adds persisted dashboard definitions, configurable widgets, saved widget ordering, and frontend-evaluated threshold rules without changing the telemetry stream architecture.
 Phase 6 adds server-side alert rules, Celery-backed periodic evaluation, and durable incident history. Alerts are evaluated from PostgreSQL metrics on the backend; the browser only manages rules and displays state.
 
+Phase 7 adds first-party email/password authentication, workspace membership, and RBAC for saved dashboards and alerting resources. Registration creates a user, default workspace, and owner membership. Access tokens are short-lived JWTs kept in browser memory; refresh tokens are opaque HttpOnly cookies, stored only as hashes, rotated on refresh, and revoked on logout. Auth endpoints include a lightweight Redis-backed rate limiter.
+
 PostgreSQL is the durable telemetry store. Redis Streams are used only for recent live transport/replay and are bounded by `TELEMETRY_STREAM_MAXLEN`. `TelemetryStore` deduplicates by telemetry event id to tolerate replay boundaries.
 
 ```mermaid
@@ -265,7 +267,11 @@ Widget rendering still flows through the existing telemetry store/query pipeline
 
 Alert rules are persisted in PostgreSQL and evaluated by Celery using indexed time-window metric queries. Celery beat scans for due rules every 5 seconds by default, and rule evaluation intervals have a 5-second minimum so short intervals are not hidden behind a slower scheduler. The alert state machine is `normal -> firing -> normal`; incident records use `firing` and `resolved`. One active firing incident per rule is allowed. Cooldown prevents immediate reopen side effects after a rule resolves, but an already-firing rule remains visible as firing.
 
-The frontend Alerts panel supports rule create/edit/enable-disable/delete, manual evaluation, and incident history polling. Notifications, acknowledgements, auth, RBAC, Slack/email/PagerDuty integrations, and workspace scoping are intentionally not implemented in this phase.
+The frontend Alerts panel supports rule create/edit/enable-disable/delete, manual evaluation, and incident history polling. Dashboard, alert and incident APIs are workspace-scoped with roles `owner`, `admin`, `member`, and `viewer`. Telemetry ingestion/query/SSE is not workspace-scoped yet; notifications, acknowledgements, Slack/email/PagerDuty integrations, OAuth, billing and enterprise identity are intentionally deferred.
+
+## Authentication And RBAC
+
+Workspace roles are ordered `viewer < member < admin < owner`. Viewers are read-only, members can edit dashboards and alerts, admins can also manage non-owner memberships, and owners have full workspace control. Final-owner demotion and removal are blocked. Frontend workspace selection is stored as a preference only; the backend validates membership on every scoped request using `Authorization` and `X-Workspace-Id`.
 
 ## Validation
 

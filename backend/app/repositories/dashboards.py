@@ -9,37 +9,38 @@ class DashboardRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list(self) -> list[DashboardModel]:
+    def list(self, workspace_id: str) -> list[DashboardModel]:
         stmt = (
             select(DashboardModel)
             .options(selectinload(DashboardModel.widgets))
+            .where(DashboardModel.workspace_id == workspace_id)
             .order_by(DashboardModel.updated_at.desc(), DashboardModel.name)
         )
         return list(self.db.scalars(stmt).all())
 
-    def get(self, dashboard_id: str) -> DashboardModel | None:
+    def get(self, dashboard_id: str, workspace_id: str) -> DashboardModel | None:
         stmt = (
             select(DashboardModel)
             .options(selectinload(DashboardModel.widgets))
-            .where(DashboardModel.id == dashboard_id)
+            .where(DashboardModel.id == dashboard_id, DashboardModel.workspace_id == workspace_id)
         )
         return self.db.scalars(stmt).first()
 
-    def create(self, payload: DashboardCreate) -> DashboardModel:
-        dashboard = DashboardModel(name=payload.name, description=payload.description)
+    def create(self, payload: DashboardCreate, workspace_id: str) -> DashboardModel:
+        dashboard = DashboardModel(name=payload.name, description=payload.description, workspace_id=workspace_id)
         for index, widget in enumerate(payload.widgets):
             dashboard.widgets.append(self._widget_from_create(widget))
         self.db.add(dashboard)
         self.db.commit()
         self.db.refresh(dashboard)
-        return self.get(dashboard.id) or dashboard
+        return self.get(dashboard.id, workspace_id) or dashboard
 
     def update(self, dashboard: DashboardModel, payload: DashboardPatch) -> DashboardModel:
         data = payload.model_dump(exclude_unset=True)
         for key, value in data.items():
             setattr(dashboard, key, value)
         self.db.commit()
-        return self.get(dashboard.id) or dashboard
+        return self.get(dashboard.id, dashboard.workspace_id) or dashboard
 
     def delete(self, dashboard: DashboardModel) -> None:
         self.db.delete(dashboard)

@@ -61,6 +61,7 @@ class AlertRulePatch(ApiModel):
 
 class AlertRuleOut(AlertRuleBase):
     id: str
+    workspace_id: str
     state: AlertState
     last_evaluated_at: datetime | None
     last_triggered_at: datetime | None
@@ -81,6 +82,7 @@ class AlertEvaluationResponse(ApiModel):
 
 class IncidentOut(ApiModel):
     id: str
+    workspace_id: str
     alert_rule_id: str
     status: IncidentStatus
     opened_at: datetime
