@@ -3,7 +3,10 @@ from math import ceil
 
 from sqlalchemy.orm import Session
 
+from datetime import datetime, timedelta, timezone
+
 from app.query.metrics import metric_definition
+from app.query.models import TelemetrySummary
 from app.query.repository import BUCKET_SECONDS, TelemetryQueryRepository
 from app.query.schemas import QueryMetadata, QueryPoint, QuerySeries, QuerySeriesPoint, TelemetryQueryRequest, TelemetryQueryResponse
 
@@ -69,6 +72,15 @@ class TelemetryQueryEngine:
                 truncated_reason=reason,
             ),
         )
+
+    def service_summary(self, workspace_id: str, service_name: str, *, end: datetime | None = None) -> TelemetrySummary:
+        summaries = self.service_summary_map(workspace_id, [service_name], end=end)
+        return summaries.get(service_name, TelemetrySummary(0, None, None, None))
+
+    def service_summary_map(self, workspace_id: str, service_names: list[str], *, end: datetime | None = None) -> dict[str, TelemetrySummary]:
+        captured_end = end or datetime.now(timezone.utc)
+        start = captured_end - timedelta(minutes=5)
+        return self.repository.service_summary_map(workspace_id, service_names, start=start, end=captured_end)
 
     def _to_series(self, points: list[QuerySeriesPoint]) -> list[QuerySeries]:
         grouped: dict[str | None, list[QueryPoint]] = {}

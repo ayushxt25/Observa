@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.telemetry import TelemetryEventModel
 from app.query.aggregations import PERCENTILES, aggregation_expression
 from app.query.metrics import metric_definition
-from app.query.models import QueryAggregation, QueryGroupBy
+from app.query.models import QueryAggregation, QueryGroupBy, TelemetrySummary
 from app.query.schemas import QuerySeriesPoint, TelemetryQueryRequest
 
 
@@ -203,6 +203,37 @@ class TelemetryQueryRepository:
         limited = len(points) > max_points
         reason = "max_points" if limited else ("max_groups" if group_limited else None)
         return points[:max_points], limited or group_limited, reason
+
+    def service_summary_map(self, workspace_id: str, service_names: list[str], *, start: datetime, end: datetime) -> dict[str, TelemetrySummary]:
+        if not service_names:
+            return {}
+        stmt = (
+            select(
+                TelemetryEventModel.service,
+                func.count(TelemetryEventModel.db_id),
+                func.avg(TelemetryEventModel.latency),
+                func.avg(TelemetryEventModel.error_rate),
+                func.avg(TelemetryEventModel.throughput),
+            )
+            .where(
+                TelemetryEventModel.workspace_id == workspace_id,
+                TelemetryEventModel.service.in_(service_names),
+                TelemetryEventModel.timestamp >= start,
+                TelemetryEventModel.timestamp < end,
+            )
+            .group_by(TelemetryEventModel.service)
+            .order_by(TelemetryEventModel.service)
+        )
+        rows = self.db.execute(stmt).all()
+        return {
+            row[0]: TelemetrySummary(
+                event_count=int(row[1] or 0),
+                avg_latency=float(row[2]) if row[2] is not None else None,
+                avg_error_rate=float(row[3]) if row[3] is not None else None,
+                avg_throughput=float(row[4]) if row[4] is not None else None,
+            )
+            for row in rows
+        }
 
     def _fallback_aggregate(self, values: list[float], aggregation: QueryAggregation) -> float | None:
         if not values:

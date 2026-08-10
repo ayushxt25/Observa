@@ -15,6 +15,9 @@ from app.main import app
 from app.models.alerts import AlertRuleModel, IncidentModel
 from app.models.services import ServiceCatalogModel, ServiceDependencyModel
 from app.models.telemetry import TelemetryEventModel
+from app.query.engine import TelemetryQueryEngine
+from app.query.models import TelemetrySummary
+from app.query.schemas import TelemetryQueryRequest
 from app.repositories.audit import AuditRepository
 from app.repositories.auth import AuthRepository
 from app.repositories.services import ServiceCatalogRepository
@@ -201,6 +204,112 @@ def test_no_data_summary_uses_null_measurements(service_client: tuple[TestClient
     assert body["activeIncidentCount"] == 0
 
 
+def test_service_summary_uses_query_engine_and_matches_direct_query(service_client: tuple[TestClient, Session, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    client, db, workspace_id = service_client
+    service = client.post("/api/v1/services/catalog", json=_service_payload("auth-service")).json()
+    now = datetime.now(timezone.utc)
+    db.add_all([
+        TelemetryEventModel(id="qe-1", workspace_id=workspace_id, timestamp=now, service="auth-service", region="us-east", latency=100, throughput=10, cpu_usage=1, memory_usage=1, error_rate=1, payload_size=1, status="healthy"),
+        TelemetryEventModel(id="qe-2", workspace_id=workspace_id, timestamp=now, service="auth-service", region="us-east", latency=300, throughput=30, cpu_usage=1, memory_usage=1, error_rate=3, payload_size=1, status="degraded"),
+    ])
+    db.commit()
+    calls = 0
+    original = TelemetryQueryEngine.service_summary
+
+    def counted(self, workspace_id_arg, service_name, *, end=None):
+        nonlocal calls
+        calls += 1
+        return original(self, workspace_id_arg, service_name, end=end)
+
+    monkeypatch.setattr(TelemetryQueryEngine, "service_summary", counted)
+    summary = client.get(f"/api/v1/services/catalog/{service['id']}/summary")
+    assert summary.status_code == 200
+    body = summary.json()
+    assert calls == 1
+    request = TelemetryQueryRequest(metric="latency", aggregation="avg", window_seconds=300, bucket="raw", filters={"service": "auth-service"})
+    direct_latency = TelemetryQueryEngine(db).execute(workspace_id, request).series[0].points[0].value
+    direct_error = TelemetryQueryEngine(db).execute(workspace_id, TelemetryQueryRequest(metric="error_rate", aggregation="avg", window_seconds=300, bucket="raw", filters={"service": "auth-service"})).series[0].points[0].value
+    direct_throughput = TelemetryQueryEngine(db).execute(workspace_id, TelemetryQueryRequest(metric="throughput", aggregation="avg", window_seconds=300, bucket="raw", filters={"service": "auth-service"})).series[0].points[0].value
+    assert body["avgLatency"] == pytest.approx(direct_latency)
+    assert body["errorRate"] == pytest.approx(direct_error)
+    assert body["throughput"] == pytest.approx(direct_throughput)
+    assert body["recentEventCount"] == 2
+
+
+def test_service_summary_query_engine_failure_propagates(service_client: tuple[TestClient, Session, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _db, _workspace_id = service_client
+    service = client.post("/api/v1/services/catalog", json=_service_payload("auth-service")).json()
+
+    def fail(self, workspace_id, service_name, *, end=None):
+        raise RuntimeError("query engine down")
+
+    monkeypatch.setattr(TelemetryQueryEngine, "service_summary", fail)
+    with pytest.raises(RuntimeError, match="query engine down"):
+        client.get(f"/api/v1/services/catalog/{service['id']}/summary")
+
+
+def test_service_summary_workspace_isolation_same_service_name(service_client: tuple[TestClient, Session, str]) -> None:
+    client, db, workspace_id = service_client
+    service = client.post("/api/v1/services/catalog", json=_service_payload("auth-service")).json()
+    now = datetime.now(timezone.utc)
+    db.add_all([
+        TelemetryEventModel(id="same-a", workspace_id=workspace_id, timestamp=now, service="auth-service", region="us-east", latency=100, throughput=10, cpu_usage=1, memory_usage=1, error_rate=0.5, payload_size=1, status="healthy"),
+        TelemetryEventModel(id="same-b", workspace_id="other-workspace", timestamp=now, service="auth-service", region="us-east", latency=900, throughput=999, cpu_usage=1, memory_usage=1, error_rate=9, payload_size=1, status="critical"),
+    ])
+    db.commit()
+    body = client.get(f"/api/v1/services/catalog/{service['id']}/summary").json()
+    assert body["avgLatency"] == 100
+    assert body["throughput"] == 10
+    assert body["health"] == "healthy"
+
+
+def test_service_summary_uses_single_captured_boundary(service_client: tuple[TestClient, Session, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    client, db, workspace_id = service_client
+    service = client.post("/api/v1/services/catalog", json=_service_payload("cutoff-service")).json()
+    captured_end = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
+    db.add_all([
+        TelemetryEventModel(id="cutoff-in", workspace_id=workspace_id, timestamp=captured_end - timedelta(minutes=5), service="cutoff-service", region="us-east", latency=100, throughput=10, cpu_usage=1, memory_usage=1, error_rate=0.5, payload_size=1, status="healthy"),
+        TelemetryEventModel(id="cutoff-out", workspace_id=workspace_id, timestamp=captured_end - timedelta(minutes=5, microseconds=1), service="cutoff-service", region="us-east", latency=900, throughput=999, cpu_usage=1, memory_usage=1, error_rate=9, payload_size=1, status="critical"),
+    ])
+    db.commit()
+    original = TelemetryQueryEngine.service_summary
+
+    def fixed_end(self, workspace_id_arg, service_name, *, end=None):
+        return original(self, workspace_id_arg, service_name, end=captured_end)
+
+    monkeypatch.setattr(TelemetryQueryEngine, "service_summary", fixed_end)
+    body = client.get(f"/api/v1/services/catalog/{service['id']}/summary").json()
+    assert body["recentEventCount"] == 1
+    assert body["avgLatency"] == 100
+
+
+def test_service_summary_health_full_regression_matrix() -> None:
+    repo = ServiceCatalogRepository(Session())
+    cases = [
+        ("healthy", TelemetrySummary(1, 100, 0.1, 10), 0, 0, "healthy"),
+        ("latency-249.999", TelemetrySummary(1, 249.999, 0, 10), 0, 0, "healthy"),
+        ("latency-250", TelemetrySummary(1, 250, 0, 10), 0, 0, "degraded"),
+        ("latency-499.999", TelemetrySummary(1, 499.999, 0, 10), 0, 0, "degraded"),
+        ("latency-500", TelemetrySummary(1, 500, 0, 10), 0, 0, "critical"),
+        ("error-0.999", TelemetrySummary(1, 10, 0.999, 10), 0, 0, "healthy"),
+        ("error-1", TelemetrySummary(1, 10, 1, 10), 0, 0, "degraded"),
+        ("error-4.999", TelemetrySummary(1, 10, 4.999, 10), 0, 0, "degraded"),
+        ("error-5", TelemetrySummary(1, 10, 5, 10), 0, 0, "critical"),
+        ("no-telemetry", TelemetrySummary(0, None, None, None), 0, 0, "unknown"),
+        ("no-telemetry-alert", TelemetrySummary(0, None, None, None), 1, 0, "degraded"),
+        ("no-telemetry-incident", TelemetrySummary(0, None, None, None), 0, 1, "critical"),
+        ("healthy-alert", TelemetrySummary(1, 100, 0.1, 10), 1, 0, "degraded"),
+        ("healthy-incident", TelemetrySummary(1, 100, 0.1, 10), 0, 1, "critical"),
+        ("resolved-only", TelemetrySummary(1, 100, 0.1, 10), 0, 0, "healthy"),
+        ("disabled-stale-alert", TelemetrySummary(1, 100, 0.1, 10), 0, 0, "healthy"),
+    ]
+    assert [
+        (name, repo._summary_from_values(summary, alerts, incidents)["health"], expected)
+        for name, summary, alerts, incidents, expected in cases
+        if repo._summary_from_values(summary, alerts, incidents)["health"] != expected
+    ] == []
+
+
 def test_health_boundaries_and_precedence() -> None:
     repo = ServiceCatalogRepository(Session())
     cases = [
@@ -239,6 +348,25 @@ def test_catalog_list_uses_batched_summary_queries(service_client: tuple[TestCli
         return original(self, workspace_id_arg, names)
 
     monkeypatch.setattr(ServiceCatalogRepository, "summary_map", counted)
+    assert client.get("/api/v1/services/catalog").status_code == 200
+    assert calls == 1
+
+
+def test_catalog_list_uses_one_query_engine_summary_map_call(service_client: tuple[TestClient, Session, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    client, db, workspace_id = service_client
+    for name in ["api-gateway", "auth-service", "billing-service", "search-service"]:
+        db.add(ServiceCatalogModel(workspace_id=workspace_id, name=name, tags_json="[]"))
+    db.commit()
+    calls = 0
+    original = TelemetryQueryEngine.service_summary_map
+
+    def counted(self, workspace_id_arg, service_names, *, end=None):
+        nonlocal calls
+        calls += 1
+        assert sorted(service_names) == ["api-gateway", "auth-service", "billing-service", "search-service"]
+        return original(self, workspace_id_arg, service_names, end=end)
+
+    monkeypatch.setattr(TelemetryQueryEngine, "service_summary_map", counted)
     assert client.get("/api/v1/services/catalog").status_code == 200
     assert calls == 1
 

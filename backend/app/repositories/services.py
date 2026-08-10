@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 
 from sqlalchemy import and_, func, select
@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.alerts import AlertRuleModel, IncidentModel
 from app.models.services import ServiceCatalogModel, ServiceDependencyModel
-from app.models.telemetry import TelemetryEventModel
+from app.query.engine import TelemetryQueryEngine
+from app.query.models import TelemetrySummary
 from app.schemas.services import (
     ServiceCatalogCreate,
     ServiceCatalogOut,
@@ -202,22 +203,8 @@ class ServiceCatalogRepository:
     def summary_map(self, workspace_id: str, service_names: list[str]) -> dict[str, dict[str, object]]:
         if not service_names:
             return {}
-        since = datetime.now(timezone.utc) - timedelta(minutes=5)
-        metric_rows = self.db.execute(
-            select(
-                TelemetryEventModel.service,
-                func.count(TelemetryEventModel.id),
-                func.avg(TelemetryEventModel.latency),
-                func.avg(TelemetryEventModel.error_rate),
-                func.avg(TelemetryEventModel.throughput),
-            )
-            .where(
-                TelemetryEventModel.workspace_id == workspace_id,
-                TelemetryEventModel.service.in_(service_names),
-                TelemetryEventModel.timestamp >= since,
-            )
-            .group_by(TelemetryEventModel.service)
-        ).all()
+        end = datetime.now(timezone.utc)
+        telemetry = TelemetryQueryEngine(self.db).service_summary_map(workspace_id, service_names, end=end)
         alert_rows = self.db.execute(
             select(AlertRuleModel.service, func.count(AlertRuleModel.id))
             .where(
@@ -238,15 +225,11 @@ class ServiceCatalogRepository:
             )
             .group_by(AlertRuleModel.service)
         ).all()
-        metrics = {row[0]: row for row in metric_rows}
         alerts = {row[0]: int(row[1] or 0) for row in alert_rows if row[0] is not None}
         incidents = {row[0]: int(row[1] or 0) for row in incident_rows if row[0] is not None}
         return {
             name: self._summary_from_values(
-                int(metrics[name][1] or 0) if name in metrics else 0,
-                float(metrics[name][2]) if name in metrics and metrics[name][2] is not None else None,
-                float(metrics[name][3]) if name in metrics and metrics[name][3] is not None else None,
-                float(metrics[name][4]) if name in metrics and metrics[name][4] is not None else None,
+                telemetry.get(name, TelemetrySummary(0, None, None, None)),
                 alerts.get(name, 0),
                 incidents.get(name, 0),
             )
@@ -280,19 +263,8 @@ class ServiceCatalogRepository:
             raise ValueError("Dependency services must belong to the active workspace")
 
     def _summary_metrics(self, workspace_id: str, service_name: str) -> dict[str, object]:
-        since = datetime.now(timezone.utc) - timedelta(minutes=5)
-        metrics = self.db.execute(
-            select(
-                func.count(TelemetryEventModel.id),
-                func.avg(TelemetryEventModel.latency),
-                func.avg(TelemetryEventModel.error_rate),
-                func.avg(TelemetryEventModel.throughput),
-            ).where(
-                TelemetryEventModel.workspace_id == workspace_id,
-                TelemetryEventModel.service == service_name,
-                TelemetryEventModel.timestamp >= since,
-            )
-        ).one()
+        end = datetime.now(timezone.utc)
+        telemetry = TelemetryQueryEngine(self.db).service_summary(workspace_id, service_name, end=end)
         active_alerts = self.db.scalar(
             select(func.count(AlertRuleModel.id)).where(
                 AlertRuleModel.workspace_id == workspace_id,
@@ -310,28 +282,21 @@ class ServiceCatalogRepository:
                 AlertRuleModel.service == service_name,
             )
         ) or 0
-        count = int(metrics[0] or 0)
-        avg_latency = float(metrics[1]) if metrics[1] is not None else None
-        error_rate = float(metrics[2]) if metrics[2] is not None else None
-        throughput = float(metrics[3]) if metrics[3] is not None else None
-        return self._summary_from_values(count, avg_latency, error_rate, throughput, int(active_alerts), int(active_incidents))
+        return self._summary_from_values(telemetry, int(active_alerts), int(active_incidents))
 
     def _summary_from_values(
         self,
-        count: int,
-        avg_latency: float | None,
-        error_rate: float | None,
-        throughput: float | None,
+        telemetry: TelemetrySummary,
         active_alerts: int,
         active_incidents: int,
     ) -> dict[str, object]:
-        health = self._health(count, avg_latency, error_rate, active_alerts, active_incidents)
+        health = self._health(telemetry.event_count, telemetry.avg_latency, telemetry.avg_error_rate, active_alerts, active_incidents)
         return {
             "health": health,
-            "recent_event_count": count,
-            "avg_latency": avg_latency,
-            "error_rate": error_rate,
-            "throughput": throughput,
+            "recent_event_count": telemetry.event_count,
+            "avg_latency": telemetry.avg_latency,
+            "error_rate": telemetry.avg_error_rate,
+            "throughput": telemetry.avg_throughput,
             "active_alert_count": active_alerts,
             "active_incident_count": active_incidents,
         }
