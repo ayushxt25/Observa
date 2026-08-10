@@ -44,17 +44,6 @@ export interface WidgetDraft {
   thresholdCritical?: number;
 }
 
-export interface MetricQueryKey {
-  workspaceId?: string;
-  metric: MetricName;
-  aggregation: WidgetAggregation;
-  bucket: MetricBucket;
-  service?: ServiceId;
-  region?: Region;
-  timeRange: TimeRange;
-  sourceVersion: number;
-}
-
 export function widgetBucketToAggregationPeriod(bucket: MetricBucket): AggregationPeriod {
   if (bucket === "1m") return "1min";
   if (bucket === "5m") return "5min";

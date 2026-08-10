@@ -1,19 +1,6 @@
-import type { MetricQueryKey } from "./types";
+export { buildWidgetQueryKey as buildMetricQueryKey } from "@/lib/query/mapping";
 
 type CacheEntry<T> = { expiresAt: number; promise: Promise<T>; controller: AbortController };
-
-export function buildMetricQueryKey(query: MetricQueryKey): string {
-  return JSON.stringify({
-    workspaceId: query.workspaceId ?? "none",
-    metric: query.metric,
-    aggregation: query.aggregation,
-    bucket: query.bucket,
-    service: query.service ?? "all",
-    region: query.region ?? "all",
-    timeRange: query.timeRange,
-    sourceVersion: query.sourceVersion,
-  });
-}
 
 export class QueryCache<T> {
   private readonly entries = new Map<string, CacheEntry<T>>();
@@ -25,7 +12,11 @@ export class QueryCache<T> {
     const cached = this.entries.get(key);
     if (cached && cached.expiresAt > now) return cached.promise;
     const controller = new AbortController();
-    const promise = load(controller.signal).finally(() => {
+    const promise = load(controller.signal).catch((error: unknown) => {
+      const current = this.entries.get(key);
+      if (current?.promise === promise) this.entries.delete(key);
+      throw error;
+    }).finally(() => {
       const current = this.entries.get(key);
       if (current?.promise === promise && current.expiresAt <= Date.now()) this.entries.delete(key);
     });
