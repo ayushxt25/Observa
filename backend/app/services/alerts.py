@@ -6,12 +6,22 @@ from sqlalchemy.orm import Session
 
 from app.repositories.alerts import AlertRepository
 from app.repositories.notifications import NotificationRepository
-from app.repositories.telemetry import TelemetryRepository
+from app.query.engine import TelemetryQueryEngine
+from app.query.schemas import QueryFilters, TelemetryQueryRequest
 from app.schemas.alerts import AlertEvaluationResponse
-from app.schemas.metrics import MetricQueryParams
 from app.services.notifications import NotificationDeliveryService
 
 logger = logging.getLogger(__name__)
+
+
+ALERT_METRIC_TO_QUERY_METRIC = {
+    "latency": "latency",
+    "throughput": "throughput",
+    "cpuUsage": "cpu_usage",
+    "memoryUsage": "memory_usage",
+    "errorRate": "error_rate",
+    "payloadSize": "payload_size",
+}
 
 
 def compare_value(value: float, operator: str, threshold: float) -> bool:
@@ -29,7 +39,7 @@ class AlertEvaluationService:
         self.db = db
         self.alerts = AlertRepository(db)
         self.notifications = NotificationRepository(db)
-        self.telemetry = TelemetryRepository(db)
+        self.query_engine = TelemetryQueryEngine(db)
 
     def evaluate_rule(self, rule_id: str, now: datetime | None = None) -> AlertEvaluationResponse:
         started = time.perf_counter()
@@ -95,17 +105,20 @@ class AlertEvaluationService:
 
     def _read_value(self, rule, now: datetime) -> float | None:
         start = now - timedelta(seconds=rule.evaluation_window_seconds)
-        params = MetricQueryParams(
-            start=start,
-            end=now,
-            service=rule.service,
-            region=rule.region,
-            metric=rule.metric,
-            aggregation=rule.aggregation,
-            bucket=rule.bucket,
+        response = self.query_engine.execute(
+            rule.workspace_id,
+            TelemetryQueryRequest(
+                metric=ALERT_METRIC_TO_QUERY_METRIC[rule.metric],
+                aggregation=rule.aggregation,
+                start=start,
+                end=now,
+                bucket=rule.bucket,
+                filters=QueryFilters(service=rule.service, region=rule.region),
+            ),
         )
-        params.validate_range()
-        points, _ = self.telemetry.metric_points(rule.workspace_id, params, max_rows=256)
+        if not response.series:
+            return None
+        points = response.series[0].points
         if not points:
             return None
         return points[-1].value
