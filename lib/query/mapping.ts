@@ -47,7 +47,27 @@ export function effectiveHistoricalBucket(configuredBucket: QueryBucket, start: 
   return candidates.find((bucket) => theoreticalBucketCount(start, end, bucket) <= MAX_QUERY_POINTS) ?? "1h";
 }
 
+function isHistoricalRange(widget: DashboardWidgetConfig, sourceKind: string, latestTimestamp: number | null): boolean {
+  return sourceKind === "remote" && (widget.timeRange === "1h" || widget.timeRange === "6h" || widget.timeRange === "all") && latestTimestamp !== null;
+}
+
+export function isHistoricalLineQuery(widget: DashboardWidgetConfig, sourceKind: string, latestTimestamp: number | null): boolean {
+  return isHistoricalRange(widget, sourceKind, latestTimestamp) && widget.type === "line" && widget.bucket !== "raw";
+}
+
+export function isHistoricalStatQuery(widget: DashboardWidgetConfig, sourceKind: string, latestTimestamp: number | null): boolean {
+  return isHistoricalRange(widget, sourceKind, latestTimestamp) && widget.type === "stat";
+}
+
+export function isHistoricalBarQuery(widget: DashboardWidgetConfig, sourceKind: string, latestTimestamp: number | null): boolean {
+  return isHistoricalRange(widget, sourceKind, latestTimestamp) && widget.type === "bar" && widget.metric === "throughput" && widget.aggregation === "avg";
+}
+
 export function isHistoricalWidgetQuery(widget: DashboardWidgetConfig, sourceKind: string, latestTimestamp: number | null): boolean {
+  return isHistoricalLineQuery(widget, sourceKind, latestTimestamp) || isHistoricalStatQuery(widget, sourceKind, latestTimestamp) || isHistoricalBarQuery(widget, sourceKind, latestTimestamp);
+}
+
+export function isHistoricalLineWidgetQuery(widget: DashboardWidgetConfig, sourceKind: string, latestTimestamp: number | null): boolean {
   return sourceKind === "remote" && widget.type === "line" && widget.bucket !== "raw" && (widget.timeRange === "1h" || widget.timeRange === "6h" || widget.timeRange === "all") && latestTimestamp !== null;
 }
 
@@ -56,11 +76,11 @@ export function normalizeHistoricalEnd(bucket: QueryBucket, latestTimestamp: num
   return Math.floor(latestTimestamp / bucketMs) * bucketMs;
 }
 
-export function buildWidgetQueryRequest(widget: DashboardWidgetConfig, latestTimestamp: number): { request: TelemetryQueryRequest; start: number; end: number; configuredBucket: QueryBucket; effectiveBucket: QueryBucket } {
-  const configuredBucket = widgetBucketToQueryBucket(widget.bucket);
+export function buildWidgetQueryRequest(widget: DashboardWidgetConfig, latestTimestamp: number, overrides: { bucket?: QueryBucket; groupBy?: TelemetryQueryRequest["groupBy"] } = {}): { request: TelemetryQueryRequest; start: number; end: number; configuredBucket: QueryBucket; effectiveBucket: QueryBucket } {
+  const configuredBucket = overrides.bucket ?? widgetBucketToQueryBucket(widget.bucket);
   const provisionalEnd = normalizeHistoricalEnd(configuredBucket, latestTimestamp);
   const provisionalStart = rangeToStart(widget.timeRange, provisionalEnd) ?? provisionalEnd - MAX_HISTORICAL_WINDOW_MS;
-  const effectiveBucket = effectiveHistoricalBucket(configuredBucket, provisionalStart, provisionalEnd);
+  const effectiveBucket = overrides.bucket ?? effectiveHistoricalBucket(configuredBucket, provisionalStart, provisionalEnd);
   const end = normalizeHistoricalEnd(effectiveBucket, latestTimestamp);
   const start = rangeToStart(widget.timeRange, end) ?? end - MAX_HISTORICAL_WINDOW_MS;
   return {
@@ -72,6 +92,7 @@ export function buildWidgetQueryRequest(widget: DashboardWidgetConfig, latestTim
       metric: metricToQueryMetric[widget.metric],
       aggregation: widgetAggregationToQueryAggregation(widget.aggregation),
       bucket: effectiveBucket,
+      groupBy: overrides.groupBy,
       start: start === undefined ? undefined : new Date(start).toISOString(),
       end: new Date(end).toISOString(),
       filters: {
@@ -114,6 +135,15 @@ export function queryResponseToAggregatedPoints(response: TelemetryQueryResponse
 }
 
 export function extractScalarValue(response: TelemetryQueryResponse): number | null {
-  const point = response.series[0]?.points[0];
+  const series = response.series.find((item) => item.group === null || item.group === undefined);
+  const point = series?.points[0];
   return point?.value ?? null;
+}
+
+export function queryResponseToBars(response: TelemetryQueryResponse): Array<{ service: string; throughput: number; count: number }> {
+  return response.series
+    .filter((series) => series.group && series.points[0]?.value !== null && series.points[0]?.value !== undefined)
+    .map((series) => ({ service: series.group as string, throughput: series.points[0].value as number, count: series.points[0].count }))
+    .filter((item) => Number.isFinite(item.throughput))
+    .sort((a, b) => a.service.localeCompare(b.service));
 }

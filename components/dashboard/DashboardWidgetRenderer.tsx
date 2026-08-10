@@ -12,9 +12,10 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { ObservaApiClient } from "@/lib/api/client";
 import { getObservaApiUrl } from "@/lib/api/config";
 import { QueryCache } from "@/lib/dashboards/queryCache";
+import { evaluateThreshold } from "@/lib/dashboards/thresholds";
 import { buildWidgetHeatmap, buildWidgetLine, filterWidgetPoints, summarizeWidget } from "@/lib/dashboards/widgetData";
 import { QueryEngineApi } from "@/lib/query/client";
-import { buildWidgetQueryKey, buildWidgetQueryRequest, isHistoricalWidgetQuery, queryResponseToAggregatedPoints } from "@/lib/query/mapping";
+import { buildWidgetQueryKey, buildWidgetQueryRequest, extractScalarValue, isHistoricalBarQuery, isHistoricalLineQuery, isHistoricalStatQuery, queryResponseToAggregatedPoints, queryResponseToBars } from "@/lib/query/mapping";
 import type { DashboardWidgetConfig, MetricBucket, ThresholdState, WidgetAggregation, WidgetType } from "@/lib/dashboards/types";
 import type { AggregatedPoint, MetricName } from "@/lib/types";
 import type { TelemetryQueryResult } from "@/hooks/useTelemetryQuery";
@@ -25,7 +26,7 @@ const metrics: MetricName[] = ["latency", "throughput", "cpuUsage", "memoryUsage
 const aggregations: WidgetAggregation[] = ["avg", "min", "max", "sum", "count"];
 const buckets: MetricBucket[] = ["raw", "1m", "5m", "1h"];
 const ranges: DashboardWidgetConfig["timeRange"][] = ["5m", "15m", "1h", "6h", "all"];
-const backendLineCache = new QueryCache<{ points: AggregatedPoint[]; limited: boolean }>(10_000, 64);
+const backendWidgetCache = new QueryCache<unknown>(10_000, 64);
 
 interface RendererProps {
   widget: DashboardWidgetConfig;
@@ -38,14 +39,60 @@ function thresholdClass(state: ThresholdState): string {
   return "threshold-normal";
 }
 
+function useHistoricalStat(widget: DashboardWidgetConfig, telemetry: TelemetryQueryResult): { value: number | null; state: ThresholdState; limited: boolean; error: string | null } | null {
+  const { sourceKind } = useDashboardControls();
+  const { activeWorkspace } = useAuth();
+  const latestTimestamp = telemetry.latestTimestamp;
+  const shouldUseHistorical = isHistoricalStatQuery(widget, sourceKind, latestTimestamp);
+  const queryWindow = useMemo(() => shouldUseHistorical && latestTimestamp !== null ? buildWidgetQueryRequest(widget, latestTimestamp, { bucket: "raw" }) : null, [latestTimestamp, shouldUseHistorical, widget]);
+  const queryKey = useMemo(() => buildWidgetQueryKey({
+    metric: widget.metric,
+    workspaceId: activeWorkspace?.id,
+    aggregation: widget.aggregation,
+    bucket: "raw",
+    service: widget.service,
+    region: widget.region,
+    timeRange: widget.timeRange,
+    start: queryWindow?.start,
+    end: queryWindow?.end,
+  }), [activeWorkspace?.id, queryWindow?.end, queryWindow?.start, widget]);
+  const requestBody = useMemo(() => queryWindow ? JSON.stringify(queryWindow.request) : "", [queryWindow]);
+  const [result, setResult] = useState<{ key: string; value: number | null; state: ThresholdState; limited: boolean; error: string | null } | null>(null);
+  useEffect(() => {
+    if (!shouldUseHistorical || !requestBody) return undefined;
+    let active = true;
+    const api = new QueryEngineApi(new ObservaApiClient({ baseUrl: getObservaApiUrl() }));
+    void backendWidgetCache.get(queryKey, (signal) => api.run(JSON.parse(requestBody), signal).then((response) => ({
+      value: extractScalarValue(response),
+      limited: response.metadata.limited,
+    }))).then((payload) => {
+      const typed = payload as { value: number | null; limited: boolean };
+      if (active) setResult({ key: queryKey, value: typed.value, state: typed.value === null ? "normal" : evaluateThreshold(typed.value, widget), limited: typed.limited, error: null });
+    }).catch((error: unknown) => {
+      if (active && !(error instanceof DOMException && error.name === "AbortError")) {
+        setResult({ key: queryKey, value: null, state: "normal", limited: false, error: error instanceof Error ? error.message : "Historical query failed" });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [queryKey, requestBody, shouldUseHistorical, widget]);
+  if (!shouldUseHistorical) return null;
+  return result?.key === queryKey ? result : { value: null, state: "normal", limited: false, error: null };
+}
+
 function StatWidget({ widget, telemetry }: RendererProps) {
   const filtered = useMemo(() => filterWidgetPoints(telemetry.allPoints, widget), [telemetry.allPoints, widget]);
   const summary = useMemo(() => summarizeWidget(filtered, widget), [filtered, widget]);
+  const historical = useHistoricalStat(widget, telemetry);
+  const display = historical ?? summary;
   return (
-    <div className={`widget-stat ${thresholdClass(summary.state)}`}>
+    <div className={`widget-stat ${thresholdClass(display.state)}`}>
       <span>{widget.metric}</span>
-      <strong>{summary.value === null ? "--" : summary.value.toFixed(widget.metric === "errorRate" ? 2 : 1)}</strong>
-      <small>{summary.state}</small>
+      <strong>{display.value === null ? "--" : display.value.toFixed(widget.metric === "errorRate" ? 2 : 1)}</strong>
+      <small>{display.state}</small>
+      {historical?.limited ? <span className="query-note">Result limited</span> : null}
+      {historical?.error ? <span className="form-error">Historical query unavailable</span> : null}
     </div>
   );
 }
@@ -56,7 +103,7 @@ function useLinePoints(widget: DashboardWidgetConfig, telemetry: TelemetryQueryR
   const filtered = useMemo(() => filterWidgetPoints(telemetry.allPoints, widget), [telemetry.allPoints, widget]);
   const [backendResult, setBackendResult] = useState<{ key: string; points: AggregatedPoint[]; limited: boolean; error: string | null; effectiveBucket: string | null } | null>(null);
   const latestTimestamp = telemetry.latestTimestamp;
-  const shouldUseHistorical = isHistoricalWidgetQuery(widget, sourceKind, latestTimestamp);
+  const shouldUseHistorical = isHistoricalLineQuery(widget, sourceKind, latestTimestamp);
   const queryWindow = useMemo(() => shouldUseHistorical && latestTimestamp !== null ? buildWidgetQueryRequest(widget, latestTimestamp) : null, [latestTimestamp, shouldUseHistorical, widget]);
   const queryKey = useMemo(() => buildWidgetQueryKey({
     metric: widget.metric,
@@ -76,10 +123,11 @@ function useLinePoints(widget: DashboardWidgetConfig, telemetry: TelemetryQueryR
     if (!shouldUseHistorical || !requestBody) return undefined;
     let active = true;
     const api = new QueryEngineApi(new ObservaApiClient({ baseUrl: getObservaApiUrl() }));
-    void backendLineCache.get(queryKey, (signal) => api.run(JSON.parse(requestBody), signal).then((response) => ({
+    void backendWidgetCache.get(queryKey, (signal) => api.run(JSON.parse(requestBody), signal).then((response) => ({
       points: queryResponseToAggregatedPoints(response),
       limited: response.metadata.limited,
-    }))).then((result) => {
+    }))).then((payload) => {
+      const result = payload as { points: AggregatedPoint[]; limited: boolean };
       if (active) setBackendResult({ key: queryKey, points: result.points, limited: result.limited, error: null, effectiveBucket });
     }).catch((error: unknown) => {
       if (active && !(error instanceof DOMException && error.name === "AbortError")) {
@@ -94,6 +142,60 @@ function useLinePoints(widget: DashboardWidgetConfig, telemetry: TelemetryQueryR
     return { points: backendResult.error ? buildWidgetLine(filtered, widget) : backendResult.points, limited: backendResult.limited, error: backendResult.error, effectiveBucket: backendResult.effectiveBucket };
   }
   return { points: buildWidgetLine(filtered, widget), limited: false, error: null, effectiveBucket: null };
+}
+
+function useBarData(widget: DashboardWidgetConfig, telemetry: TelemetryQueryResult): { bars: Array<{ service: string; throughput: number; count: number }> | null; limited: boolean; error: string | null } {
+  const { sourceKind } = useDashboardControls();
+  const { activeWorkspace } = useAuth();
+  const latestTimestamp = telemetry.latestTimestamp;
+  const shouldUseHistorical = isHistoricalBarQuery(widget, sourceKind, latestTimestamp);
+  const queryWindow = useMemo(() => shouldUseHistorical && latestTimestamp !== null ? buildWidgetQueryRequest(widget, latestTimestamp, { bucket: "raw", groupBy: "service" }) : null, [latestTimestamp, shouldUseHistorical, widget]);
+  const queryKey = useMemo(() => buildWidgetQueryKey({
+    metric: widget.metric,
+    workspaceId: activeWorkspace?.id,
+    aggregation: widget.aggregation,
+    bucket: "raw",
+    groupBy: "service",
+    service: widget.service,
+    region: widget.region,
+    timeRange: widget.timeRange,
+    start: queryWindow?.start,
+    end: queryWindow?.end,
+  }), [activeWorkspace?.id, queryWindow?.end, queryWindow?.start, widget]);
+  const requestBody = useMemo(() => queryWindow ? JSON.stringify(queryWindow.request) : "", [queryWindow]);
+  const [backendResult, setBackendResult] = useState<{ key: string; bars: Array<{ service: string; throughput: number; count: number }>; limited: boolean; error: string | null } | null>(null);
+  useEffect(() => {
+    if (!shouldUseHistorical || !requestBody) return undefined;
+    let active = true;
+    const api = new QueryEngineApi(new ObservaApiClient({ baseUrl: getObservaApiUrl() }));
+    void backendWidgetCache.get(queryKey, (signal) => api.run(JSON.parse(requestBody), signal).then((response) => ({
+      bars: queryResponseToBars(response),
+      limited: response.metadata.limited,
+    }))).then((payload) => {
+      const result = payload as { bars: Array<{ service: string; throughput: number; count: number }>; limited: boolean };
+      if (active) setBackendResult({ key: queryKey, bars: result.bars, limited: result.limited, error: null });
+    }).catch((error: unknown) => {
+      if (active && !(error instanceof DOMException && error.name === "AbortError")) {
+        setBackendResult({ key: queryKey, bars: [], limited: false, error: error instanceof Error ? error.message : "Historical query failed" });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [queryKey, requestBody, shouldUseHistorical]);
+  if (shouldUseHistorical && backendResult?.key === queryKey) return { bars: backendResult.error ? null : backendResult.bars, limited: backendResult.limited, error: backendResult.error };
+  return { bars: null, limited: false, error: null };
+}
+
+function BarWidget({ widget, telemetry }: RendererProps) {
+  const result = useBarData(widget, telemetry);
+  return (
+    <>
+      {result.bars ? <BarChart data={result.bars} /> : <BarChart points={filterWidgetPoints(telemetry.allPoints, widget)} />}
+      {result.limited ? <span className="query-note">Result limited</span> : null}
+      {result.error ? <span className="form-error">Historical query unavailable</span> : null}
+    </>
+  );
 }
 
 function LineWidget(props: RendererProps) {
@@ -162,7 +264,7 @@ function WidgetEditForm({ widget, onCancel }: { widget: DashboardWidgetConfig; o
 
 const renderers = {
   line: (props: RendererProps) => <LineWidget {...props} />,
-  bar: ({ widget, telemetry }: RendererProps) => <BarChart points={filterWidgetPoints(telemetry.allPoints, widget)} />,
+  bar: (props: RendererProps) => <BarWidget {...props} />,
   scatter: ({ widget, telemetry }: RendererProps) => <ScatterPlot points={filterWidgetPoints(telemetry.allPoints, widget)} />,
   heatmap: ({ widget, telemetry }: RendererProps) => <Heatmap cells={buildWidgetHeatmap(filterWidgetPoints(telemetry.allPoints, widget))} />,
   stat: (props: RendererProps) => <StatWidget {...props} />,
@@ -199,7 +301,7 @@ export function DashboardWidgetGrid() {
   const telemetry = useTelemetryQuery();
   const widgets = [...activeDashboard.widgets].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
   useEffect(() => {
-    backendLineCache.clear();
+    backendWidgetCache.clear();
   }, [activeDashboard.id, activeWorkspace?.id]);
   if (widgets.length === 0) {
     return <section className="panel empty-state"><h2>No widgets yet</h2><p>Add a widget to start building this dashboard.</p></section>;

@@ -3,7 +3,7 @@ import { mapApiDashboard, widgetToApiBody } from "@/lib/api/dashboards";
 import { buildMetricQueryKey, QueryCache } from "@/lib/dashboards/queryCache";
 import { evaluateThreshold } from "@/lib/dashboards/thresholds";
 import { buildWidgetLine, filterWidgetPoints } from "@/lib/dashboards/widgetData";
-import { buildWidgetQueryKey, buildWidgetQueryRequest, effectiveHistoricalBucket, isHistoricalWidgetQuery, queryResponseToAggregatedPoints, theoreticalBucketCount } from "@/lib/query/mapping";
+import { buildWidgetQueryKey, buildWidgetQueryRequest, effectiveHistoricalBucket, extractScalarValue, isHistoricalBarQuery, isHistoricalLineQuery, isHistoricalStatQuery, isHistoricalWidgetQuery, queryResponseToAggregatedPoints, queryResponseToBars, theoreticalBucketCount } from "@/lib/query/mapping";
 import type { DashboardWidgetConfig } from "@/lib/dashboards/types";
 import type { TelemetryPoint } from "@/lib/types";
 
@@ -141,10 +141,13 @@ describe("query cache", () => {
 });
 
 describe("historical query mapping", () => {
-  it("routes only remote historical line widgets to the Query Engine", () => {
-    expect(isHistoricalWidgetQuery({ ...widget, timeRange: "1h" }, "remote", 3_600_000)).toBe(true);
-    expect(isHistoricalWidgetQuery({ ...widget, timeRange: "15m" }, "remote", 3_600_000)).toBe(false);
-    expect(isHistoricalWidgetQuery({ ...widget, timeRange: "1h" }, "simulation", 3_600_000)).toBe(false);
+  it("routes only supported remote historical widgets to the Query Engine", () => {
+    expect(isHistoricalLineQuery({ ...widget, timeRange: "1h" }, "remote", 3_600_000)).toBe(true);
+    expect(isHistoricalLineQuery({ ...widget, timeRange: "15m" }, "remote", 3_600_000)).toBe(false);
+    expect(isHistoricalLineQuery({ ...widget, timeRange: "1h" }, "simulation", 3_600_000)).toBe(false);
+    expect(isHistoricalStatQuery({ ...widget, type: "stat", timeRange: "1h" }, "remote", 3_600_000)).toBe(true);
+    expect(isHistoricalBarQuery({ ...widget, type: "bar", metric: "throughput", aggregation: "avg", timeRange: "1h" }, "remote", 3_600_000)).toBe(true);
+    expect(isHistoricalBarQuery({ ...widget, type: "bar", metric: "latency", aggregation: "avg", timeRange: "1h" }, "remote", 3_600_000)).toBe(false);
     expect(isHistoricalWidgetQuery({ ...widget, type: "scatter", timeRange: "1h" }, "remote", 3_600_000)).toBe(false);
   });
 
@@ -198,6 +201,51 @@ describe("historical query mapping", () => {
     expect(points).toEqual([
       { timestamp: Date.parse("2026-08-10T00:01:00.000Z"), avg: 125, min: 125, max: 125, count: 2 },
       { timestamp: Date.parse("2026-08-10T00:02:00.000Z"), avg: 175, min: 175, max: 175, count: 1 },
+    ]);
+  });
+
+  it("maps historical stat queries to one raw scalar aggregate", () => {
+    const mapped = buildWidgetQueryRequest({ ...widget, type: "stat", metric: "throughput", aggregation: "sum", timeRange: "6h" }, 7_260_000, { bucket: "raw" });
+    expect(mapped.request.metric).toBe("throughput");
+    expect(mapped.request.aggregation).toBe("sum");
+    expect(mapped.request.bucket).toBe("raw");
+    expect(mapped.request.groupBy).toBeUndefined();
+    expect(extractScalarValue({
+      metric: "throughput",
+      unit: "rps",
+      aggregation: "sum",
+      bucket: "raw",
+      groupBy: null,
+      filters: {},
+      series: [{ group: null, points: [{ timestamp: null, value: null, count: 0 }] }],
+      metadata: { start: "2026-08-10T00:00:00.000Z", end: "2026-08-10T01:00:00.000Z", executionTimeMs: 1, returnedPoints: 1, maxPoints: 10000, maxGroups: 100, limited: false, truncatedReason: null },
+    })).toBeNull();
+  });
+
+  it("maps historical bar queries to grouped service aggregates", () => {
+    const mapped = buildWidgetQueryRequest({ ...widget, type: "bar", metric: "throughput", aggregation: "avg", timeRange: "1h", region: "us" }, 3_690_123, { bucket: "raw", groupBy: "service" });
+    expect(mapped.request.metric).toBe("throughput");
+    expect(mapped.request.aggregation).toBe("avg");
+    expect(mapped.request.bucket).toBe("raw");
+    expect(mapped.request.groupBy).toBe("service");
+    expect(mapped.request.filters).toEqual({ region: "us" });
+
+    expect(queryResponseToBars({
+      metric: "throughput",
+      unit: "rps",
+      aggregation: "avg",
+      bucket: "raw",
+      groupBy: "service",
+      filters: {},
+      series: [
+        { group: "worker", points: [{ timestamp: null, value: 30, count: 3 }] },
+        { group: "api", points: [{ timestamp: null, value: 10, count: 1 }] },
+        { group: "empty", points: [{ timestamp: null, value: null, count: 0 }] },
+      ],
+      metadata: { start: "2026-08-10T00:00:00.000Z", end: "2026-08-10T01:00:00.000Z", executionTimeMs: 1, returnedPoints: 3, maxPoints: 10000, maxGroups: 100, limited: true, truncatedReason: "max_groups" },
+    })).toEqual([
+      { service: "api", throughput: 10, count: 1 },
+      { service: "worker", throughput: 30, count: 3 },
     ]);
   });
 });
