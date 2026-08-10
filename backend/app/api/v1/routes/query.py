@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_workspace_role
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
+from app.query.cache import RedisQueryCache
 from app.models.auth import WorkspaceMembershipModel
 from app.query.engine import TelemetryQueryEngine
 from app.query.schemas import TelemetryQueryRequest, TelemetryQueryResponse
@@ -24,6 +25,7 @@ def get_query_engine(
         max_range_seconds=settings.query_max_range_seconds,
         max_points=settings.query_max_points,
         max_groups=settings.query_max_groups,
+        cache=RedisQueryCache(settings) if settings.query_cache_enabled else None,
     )
 
 
@@ -37,4 +39,3 @@ def run_query(
         return engine.execute(membership.workspace_id, payload)
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-

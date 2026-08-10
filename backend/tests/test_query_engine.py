@@ -11,7 +11,11 @@ from app.db.base import Base
 from app.main import app
 from app.models.auth import UserModel, WorkspaceMembershipModel, WorkspaceModel
 from app.models.telemetry import TelemetryEventModel
+from app.core.config import Settings
+from app.query.cache import RedisQueryCache
 from app.query.engine import TelemetryQueryEngine
+from app.query.repository import TelemetryQueryRepository
+from app.query.schemas import TelemetryQueryRequest
 from app.repositories.auth import AuthRepository
 from tests.auth_helpers import authenticate_test_client
 
@@ -83,6 +87,26 @@ def _query(client: TestClient, now: datetime, **overrides):
 
 def _points(response):
     return response.json()["series"][0]["points"]
+
+
+class FakeQueryCache:
+    def __init__(self) -> None:
+        self.store = {}
+        self.gets = 0
+        self.sets = 0
+
+    def build_key(self, **kwargs) -> str:
+        request = kwargs["request"]
+        return RedisQueryCache(Settings()).build_key(**kwargs)
+
+    def get(self, key: str):
+        self.gets += 1
+        return self.store.get(key)
+
+    def set(self, key: str, response) -> bool:
+        self.sets += 1
+        self.store[key] = response.model_copy(deep=True)
+        return True
 
 
 @pytest.mark.parametrize(
@@ -251,3 +275,120 @@ def test_query_rbac_all_workspace_roles_can_read(role: str) -> None:
     finally:
         app.dependency_overrides.clear()
         db.close()
+
+
+def test_query_cache_key_is_deterministic_workspace_scoped_and_utc_normalized(query_client: tuple[TestClient, Session, str, datetime]) -> None:
+    _client, _db, workspace_id, now = query_client
+    cache = RedisQueryCache(Settings())
+    request_a = TelemetryQueryRequest(
+        metric="latency",
+        aggregation="avg",
+        start=now,
+        end=now + timedelta(minutes=5),
+        bucket="raw",
+        filters={"service": "api-gateway"},
+    )
+    offset_tz = timezone(timedelta(hours=5, minutes=30))
+    request_b = TelemetryQueryRequest(
+        metric="latency",
+        aggregation="avg",
+        start=now.astimezone(offset_tz),
+        end=(now + timedelta(minutes=5)).astimezone(offset_tz),
+        bucket="raw",
+        filters={"service": "api-gateway"},
+    )
+    key_a = cache.build_key(workspace_id=workspace_id, request=request_a, start=request_a.start, end=request_a.end, max_points=50, max_groups=2)
+    key_b = cache.build_key(workspace_id=workspace_id, request=request_b, start=request_b.start, end=request_b.end, max_points=50, max_groups=2)
+    key_other = cache.build_key(workspace_id="workspace-other", request=request_a, start=request_a.start, end=request_a.end, max_points=50, max_groups=2)
+    assert key_a == key_b
+    assert key_a != key_other
+    assert key_a.startswith("observa:query:v1:")
+
+
+def test_query_cache_first_miss_second_hit(query_client: tuple[TestClient, Session, str, datetime], monkeypatch: pytest.MonkeyPatch) -> None:
+    _client, db, workspace_id, now = query_client
+    cache = FakeQueryCache()
+    calls = 0
+    original = TelemetryQueryRepository.execute
+
+    def counted(self, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(TelemetryQueryRepository, "execute", counted)
+    engine = TelemetryQueryEngine(db, max_points=50, max_groups=2, cache=cache)
+    request = TelemetryQueryRequest(metric="latency", aggregation="avg", start=now, end=now + timedelta(minutes=5), bucket="raw")
+    first = engine.execute(workspace_id, request)
+    second = engine.execute(workspace_id, request)
+    assert first.metadata.cache_status == "miss"
+    assert second.metadata.cache_status == "hit"
+    assert first.series[0].points[0].value == second.series[0].points[0].value
+    assert calls == 1
+
+
+class FakeRedis:
+    def __init__(self) -> None:
+        self.values = {}
+        self.deleted = []
+        self.fail_get = False
+        self.fail_set = False
+
+    def get(self, key: str):
+        if self.fail_get:
+            from redis.exceptions import RedisError
+            raise RedisError("down")
+        return self.values.get(key)
+
+    def setex(self, key: str, ttl: int, value: str):
+        if self.fail_set:
+            from redis.exceptions import RedisError
+            raise RedisError("down")
+        self.values[key] = value
+        return True
+
+    def delete(self, key: str):
+        self.deleted.append(key)
+
+
+def test_query_cache_redis_failures_and_malformed_entries_fall_back(query_client: tuple[TestClient, Session, str, datetime]) -> None:
+    _client, db, workspace_id, now = query_client
+    cache = RedisQueryCache.__new__(RedisQueryCache)
+    cache.client = FakeRedis()
+    cache.ttl_seconds = 30
+    cache.max_bytes = 1_000_000
+    request = TelemetryQueryRequest(metric="latency", aggregation="avg", start=now, end=now + timedelta(minutes=5), bucket="raw")
+    key = cache.build_key(workspace_id=workspace_id, request=request, start=request.start, end=request.end, max_points=50, max_groups=2)
+    cache.client.values[key] = "{bad-json"
+    response = TelemetryQueryEngine(db, max_points=50, max_groups=2, cache=cache).execute(workspace_id, request)
+    assert response.metadata.cache_status == "miss"
+    assert key in cache.client.deleted
+    cache.client.fail_get = True
+    assert TelemetryQueryEngine(db, max_points=50, max_groups=2, cache=cache).execute(workspace_id, request).metadata.cache_status == "miss"
+    cache.client.fail_get = False
+    cache.client.values.clear()
+    cache.client.fail_set = True
+    assert TelemetryQueryEngine(db, max_points=50, max_groups=2, cache=cache).execute(workspace_id, request).metadata.cache_status == "miss"
+
+
+def test_query_cache_disabled_reports_bypass(query_client: tuple[TestClient, Session, str, datetime]) -> None:
+    _client, db, workspace_id, now = query_client
+    response = TelemetryQueryEngine(db, max_points=50, max_groups=2).execute(
+        workspace_id,
+        TelemetryQueryRequest(metric="latency", aggregation="avg", start=now, end=now + timedelta(minutes=5), bucket="raw"),
+    )
+    assert response.metadata.cache_status == "bypass"
+
+
+def test_query_cache_oversized_response_is_not_stored(query_client: tuple[TestClient, Session, str, datetime]) -> None:
+    _client, db, workspace_id, now = query_client
+    cache = RedisQueryCache.__new__(RedisQueryCache)
+    cache.client = FakeRedis()
+    cache.ttl_seconds = 30
+    cache.max_bytes = 32
+    response = TelemetryQueryEngine(db, max_points=50, max_groups=2, cache=cache).execute(
+        workspace_id,
+        TelemetryQueryRequest(metric="latency", aggregation="avg", start=now, end=now + timedelta(minutes=5), bucket="raw"),
+    )
+    assert response.metadata.cache_status == "miss"
+    assert cache.client.values == {}

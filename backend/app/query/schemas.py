@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+from typing import Literal
+
 from pydantic import Field, field_validator, model_validator
 
 from app.query.models import QueryAggregation, QueryBucket, QueryGroupBy, QueryMetric
@@ -85,6 +87,7 @@ class QueryMetadata(ApiModel):
     max_groups: int
     limited: bool
     truncated_reason: str | None = None
+    cache_status: Literal["hit", "miss", "bypass"] | None = None
 
 
 class TelemetryQueryResponse(ApiModel):

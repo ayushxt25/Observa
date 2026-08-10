@@ -60,7 +60,17 @@ Batch size is capped by `MAX_INGEST_BATCH_SIZE`.
 
 ## Metric Query
 
+`POST /api/v1/query`
+
+Runs the reusable workspace-scoped Query Engine used by historical dashboard widgets. Requests are authenticated with the active workspace context; clients cannot submit `workspaceId`.
+
+Successful public query responses may be cached in Redis for a short TTL. Cache keys include workspace id, metric, aggregation, bucket, groupBy, scalar filters, normalized UTC start/end, limit and server safety limits. Redis cache failures are treated as misses and PostgreSQL remains the source of truth. Response metadata may include `cacheStatus` as `hit`, `miss`, or `bypass`.
+
+Alert evaluation bypasses this cache so incident transitions use fresh PostgreSQL telemetry. Service health uses its existing grouped summary path and remains uncached in this phase.
+
 `GET /api/v1/metrics/query`
+
+Compatibility endpoint for older metric-query consumers. Current migrated dashboard historical Line/Stat/Bar widgets use `POST /api/v1/query`; this endpoint remains available for compatibility and is not deleted in Phase 12F.
 
 Query parameters:
 

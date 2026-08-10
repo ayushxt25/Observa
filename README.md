@@ -277,6 +277,8 @@ Phase 11 turns telemetry service names into a workspace-scoped Service Catalog. 
 
 Service health is derived from recent telemetry and alert state rather than persisted as a fake flag. A five-minute recent window feeds event count, average latency, error rate, throughput, active alert count, and active incident count. Services with no recent telemetry are `unknown`; active incidents or severe recent latency/error rates are `critical`; active firing alerts or elevated latency/error rates are `degraded`; otherwise the service is `healthy`.
 
+Phase 12 adds a reusable backend Query Engine for workspace-scoped telemetry analytics. Historical dashboard Line, Stat, and the supported throughput Bar path use `POST /api/v1/query`; short live windows, Scatter, and Heatmap continue to use `TelemetryStore` and SSE. Phase 12F adds a Redis cache behind public historical Query Engine requests. The frontend still keeps its 10-second in-flight/result cache, so the normal flow is frontend miss -> backend miss -> PostgreSQL, then later frontend miss -> backend Redis hit within the backend TTL. Alert evaluation bypasses this cache to preserve fresh incident transitions.
+
 ## Authentication And RBAC
 
 Workspace roles are ordered `viewer < member < admin < owner`. Viewers are read-only, members can edit dashboards and alerts, admins can also manage non-owner memberships, and owners have full workspace control. Final-owner demotion and removal are blocked. Frontend workspace selection is stored as a preference only; the backend validates membership on every scoped request using `Authorization` and `X-Workspace-Id`.

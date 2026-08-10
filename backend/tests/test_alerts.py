@@ -361,3 +361,17 @@ def test_alert_query_is_workspace_scoped_for_identical_service_names(alert_db: S
     assert evaluated_a.value == pytest.approx(100)
     assert evaluated_b.triggered is True
     assert evaluated_b.value == pytest.approx(1000)
+
+
+def test_alert_evaluation_bypasses_public_query_cache(alert_client: TestClient, alert_db: Session) -> None:
+    workspace_id = alert_db.scalars(select(WorkspaceModel.id)).first()
+    assert workspace_id is not None
+    now = datetime.now(timezone.utc)
+    insert_event(alert_db, workspace_id, "cached-non-breach", now - timedelta(seconds=10), latency=100)
+    insert_event(alert_db, workspace_id, "fresh-breach", now, latency=1000)
+    rule = alert_client.post("/api/v1/alerts", json=payload(threshold=500)).json()
+    service = AlertEvaluationService(alert_db)
+    assert service.query_engine.cache is None
+    evaluated = service.evaluate_rule(rule["id"], now=now + timedelta(seconds=1))
+    assert evaluated.triggered is True
+    assert evaluated.value == pytest.approx(550)

@@ -111,6 +111,12 @@ Service catalog state is low-frequency workspace configuration. It is loaded thr
 
 Service health summaries use indexed workspace/service/time telemetry filters over a recent five-minute window plus workspace-scoped alert/incident counts. The topology view is an SVG layer with a deterministic radial layout, pan/zoom state, hover, and click selection. It targets modest catalogs around 50 services smoothly and 100 services usefully; it does not add a graph-rendering dependency or create service-specific streams.
 
+## Query Engine Cache Strategy
+
+Historical dashboard queries use two cache layers. The browser `QueryCache` deduplicates in-flight requests and keeps results for 10 seconds. The backend Query Engine can then serve successful public historical queries from Redis for `QUERY_CACHE_TTL_SECONDS` with workspace-aware SHA-256 keys. Cache values are serialized JSON responses with TTLs and optional max-size skipping; Redis get/set/decode failures fall back to PostgreSQL.
+
+Alert evaluation bypasses Redis Query Cache so new telemetry can change alert state immediately. Service health remains on the uncached grouped summary path in this phase because it already uses one efficient SQL query and combines telemetry with live alert/incident state.
+
 ## Auth And Tenancy Performance
 
 Auth state is held in a low-frequency React context separate from telemetry storage and chart rendering. API requests attach an in-memory access token and active workspace id; concurrent `401` responses share one refresh request and retry once. Workspace switches reload dashboard and alert configuration but do not restart telemetry sources or chart pipelines.

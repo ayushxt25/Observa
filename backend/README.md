@@ -33,6 +33,12 @@ Metric API
   -> SQL aggregation/query
   -> typed JSON response
 
+Query Engine
+  -> Workspace-scoped query validation
+  -> Redis query cache for public historical queries
+  -> PostgreSQL aggregation on cache miss
+  -> typed JSON response
+
 Dashboard API
   -> Pydantic config validation
   -> DashboardRepository
@@ -148,6 +154,8 @@ The generator posts realistic deterministic telemetry to the batch ingestion end
 The API uses camelCase JSON to align with the frontend domain, while Python models use snake_case internally.
 Live SSE reads from workspace Redis Streams; historical HTTP reads remain PostgreSQL-backed and workspace-filtered. Machine ingestion uses `Authorization: Bearer <workspace API key>` or `X-Observa-Api-Key`, and the backend derives `workspace_id` from the key.
 Dashboard endpoints persist view configuration only; they do not store telemetry samples or create live streams.
+
+`POST /api/v1/query` is the reusable telemetry Query Engine endpoint. Public historical/dashboard queries use a Redis-backed cache when `QUERY_CACHE_ENABLED=true`; entries are workspace-isolated, expire with `QUERY_CACHE_TTL_SECONDS`, and are capped by `QUERY_CACHE_MAX_BYTES`. Redis failures degrade to PostgreSQL misses rather than failing the query. Alert evaluation explicitly bypasses the cache.
 
 ## Alert Evaluation
 

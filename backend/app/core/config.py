@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     query_max_range_seconds: int = Field(default=2_678_400, ge=60, le=31_536_000)
     query_max_points: int = Field(default=10_000, ge=1, le=100_000)
     query_max_groups: int = Field(default=100, ge=1, le=10_000)
+    query_cache_enabled: bool = True
+    query_cache_ttl_seconds: int = Field(default=30, ge=1, le=3600)
+    query_cache_max_bytes: int = Field(default=1_000_000, ge=1024, le=10_000_000)
 
     @model_validator(mode="after")
     def production_secrets_are_explicit(self) -> "Settings":
