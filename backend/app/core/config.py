@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     smtp_tls: bool = True
     webhook_allow_private_networks: bool = False
     webhook_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    query_max_range_seconds: int = Field(default=2_678_400, ge=60, le=31_536_000)
+    query_max_points: int = Field(default=10_000, ge=1, le=100_000)
+    query_max_groups: int = Field(default=100, ge=1, le=10_000)
 
     @model_validator(mode="after")
     def production_secrets_are_explicit(self) -> "Settings":
