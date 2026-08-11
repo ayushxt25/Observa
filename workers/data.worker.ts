@@ -1,4 +1,4 @@
-import { aggregateLatency, buildHeatmap, filterTelemetry } from "@/lib/aggregation";
+import { aggregateLatency, buildHeatmap, filterTelemetry } from "@/lib/telemetry/query";
 import type { WorkerRequest, WorkerResponse } from "@/lib/types";
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {

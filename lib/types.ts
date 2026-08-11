@@ -1,83 +1,46 @@
-export const SERVICES = ["auth", "checkout", "search", "payments", "inventory", "notifications"] as const;
-export const REGIONS = ["us-east-1", "us-west-2", "eu-central-1", "ap-south-1"] as const;
-export const STATUSES = ["healthy", "degraded", "critical"] as const;
+export type {
+  AggregatedPoint,
+  AggregationMode,
+  AggregationPeriod,
+  CapacityPreset,
+  HeatmapCell,
+  InteractionMetric,
+  InteractionType,
+  MetricName,
+  MetricSummary,
+  Region,
+  RegionName,
+  ServiceId,
+  ServiceName,
+  TelemetryBatch,
+  TelemetryEvent,
+  TelemetryPoint,
+  TelemetryQuery,
+  TelemetrySnapshot,
+  TelemetrySourceKind,
+  TelemetrySourceStatus,
+  TelemetryStatus,
+  TimeRange,
+  VirtualRange,
+} from "./telemetry/types";
 
-export type ServiceName = (typeof SERVICES)[number];
-export type RegionName = (typeof REGIONS)[number];
-export type TelemetryStatus = (typeof STATUSES)[number];
-
-export type AggregationMode = "raw" | "1min" | "5min" | "1hour";
-export type CapacityPreset = 10000 | 50000 | 100000;
-export type TimeRange = "5m" | "15m" | "1h" | "6h" | "all";
-
-export interface TelemetryPoint {
-  id: string;
-  timestamp: number;
-  service: ServiceName;
-  region: RegionName;
-  latency: number;
-  throughput: number;
-  cpuUsage: number;
-  memoryUsage: number;
-  errorRate: number;
-  payloadSize: number;
-  status: TelemetryStatus;
-}
-
-export interface AggregatedPoint {
-  timestamp: number;
-  service?: ServiceName;
-  avg: number;
-  min: number;
-  max: number;
-  count: number;
-}
-
-export interface MetricSummary {
-  totalPoints: number;
-  generatedPoints: number;
-  avgLatency: number;
-  totalThroughput: number;
-  avgErrorRate: number;
-}
-
-export type InteractionType = "aggregation" | "filter" | "time-range" | "stress";
-
-export interface InteractionMetric {
-  type: InteractionType;
-  durationMs: number;
-}
+export { REGIONS, SERVICES, STATUSES } from "./telemetry/types";
 
 export interface WorkerRequest {
   id: number;
   type: "aggregate" | "stress";
-  points: TelemetryPoint[];
-  mode: AggregationMode;
-  service: ServiceName | "all";
-  timeRange: TimeRange;
-  capacity: CapacityPreset;
+  points: import("./telemetry/types").TelemetryEvent[];
+  mode: import("./telemetry/types").AggregationPeriod;
+  service: import("./telemetry/types").ServiceId | "all";
+  timeRange: import("./telemetry/types").TimeRange;
+  capacity: import("./telemetry/types").CapacityPreset;
   processingStartedAt: number;
 }
 
 export interface WorkerResponse {
   id: number;
   type: "aggregate" | "stress";
-  points: AggregatedPoint[];
-  heatmap: HeatmapCell[];
+  points: import("./telemetry/types").AggregatedPoint[];
+  heatmap: import("./telemetry/types").HeatmapCell[];
   processingStartedAt: number;
-}
-
-export interface HeatmapCell {
-  service: ServiceName;
-  bucketStart: number;
-  avgLatency: number;
-  errorCount: number;
-  count: number;
-}
-
-export interface VirtualRange {
-  startIndex: number;
-  endIndex: number;
-  offsetTop: number;
-  offsetBottom: number;
 }

@@ -1,13 +1,13 @@
 "use client";
 
-import { useDataStream } from "@/hooks/useDataStream";
+import { useTelemetryQuery } from "@/hooks/useTelemetryQuery";
 
 const integerFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
 export function MetricCards() {
-  const { summary } = useDataStream();
+  const { summary } = useTelemetryQuery();
 
   const cards = [
     {

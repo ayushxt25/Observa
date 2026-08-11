@@ -1,6 +1,6 @@
-import { REGIONS, SERVICES, type RegionName, type ServiceName, type TelemetryPoint, type TelemetryStatus } from "./types";
+import { REGIONS, SERVICES, type RegionName, type TelemetryPoint, type TelemetryStatus } from "./types";
 
-const serviceBase: Record<ServiceName, { latency: number; throughput: number; cpu: number; memory: number; payload: number }> = {
+const serviceBase: Record<string, { latency: number; throughput: number; cpu: number; memory: number; payload: number }> = {
   auth: { latency: 64, throughput: 950, cpu: 38, memory: 44, payload: 5 },
   checkout: { latency: 145, throughput: 520, cpu: 54, memory: 63, payload: 18 },
   search: { latency: 92, throughput: 1320, cpu: 61, memory: 58, payload: 11 },
@@ -72,7 +72,7 @@ export function generateTelemetryBatch(state: GeneratorState, count: number, int
     timestamp += intervalMs;
     const service = SERVICES[sequence % SERVICES.length];
     const region = REGIONS[Math.floor(sequence / SERVICES.length) % REGIONS.length];
-    const base = serviceBase[service];
+    const base = serviceBase[service] ?? serviceBase.auth;
     const wave = Math.sin(sequence / 58 + SERVICES.indexOf(service)) * 0.12;
     const regionMultiplier = regionBias[region];
     const anomaly = random.next() > 0.992 ? random.range(1.8, 4.5) : 1;

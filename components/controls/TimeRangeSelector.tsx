@@ -1,13 +1,14 @@
 "use client";
 
 import { useTransition } from "react";
-import { useDataStream } from "@/hooks/useDataStream";
+import { useDashboardControls, useTelemetryActions } from "@/hooks/useDashboardControls";
 import type { TimeRange } from "@/lib/types";
 
 const ranges: TimeRange[] = ["5m", "15m", "1h", "6h", "all"];
 
 export function TimeRangeSelector() {
-  const { timeRange, setTimeRange } = useDataStream();
+  const { timeRange } = useDashboardControls();
+  const { setTimeRange } = useTelemetryActions();
   const [isPending, startTransition] = useTransition();
   return (
     <section className="panel">

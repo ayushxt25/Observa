@@ -1,12 +1,14 @@
 "use client";
 
 import { useContext } from "react";
-import { DataContext } from "@/components/providers/DataProvider";
+import { DashboardControlsContext, TelemetryActionsContext } from "@/components/providers/DataProvider";
 
+// TODO: remove after any downstream callers migrate to useDashboardControls/useTelemetryActions/useTelemetryQuery.
 export function useDataStream() {
-  const context = useContext(DataContext);
-  if (!context) {
+  const controls = useContext(DashboardControlsContext);
+  const actions = useContext(TelemetryActionsContext);
+  if (!controls || !actions) {
     throw new Error("useDataStream must be used within DataProvider");
   }
-  return context;
+  return { ...controls, ...actions };
 }

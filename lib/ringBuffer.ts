@@ -16,19 +16,27 @@ export class RingBuffer<T> {
     return this.length;
   }
 
-  push(item: T): void {
+  push(item: T): T | undefined {
     const writeIndex = (this.start + this.length) % this.capacityValue;
     if (this.length < this.capacityValue) {
       this.values[writeIndex] = item;
       this.length += 1;
+      return undefined;
     } else {
+      const evicted = this.values[this.start];
       this.values[this.start] = item;
       this.start = (this.start + 1) % this.capacityValue;
+      return evicted;
     }
   }
 
-  pushMany(items: readonly T[]): void {
-    for (let i = 0; i < items.length; i += 1) this.push(items[i]);
+  pushMany(items: readonly T[]): T[] {
+    const evicted: T[] = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = this.push(items[i]);
+      if (item !== undefined) evicted.push(item);
+    }
+    return evicted;
   }
 
   resize(capacity: number): RingBuffer<T> {

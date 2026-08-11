@@ -2,21 +2,21 @@
 
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { formatTime } from "@/lib/canvasUtils";
-import { calculateVirtualRange } from "@/lib/performanceUtils";
-import { useDataStream } from "@/hooks/useDataStream";
+import { useTelemetryQuery } from "@/hooks/useTelemetryQuery";
+import { useVirtualization } from "@/hooks/useVirtualization";
 
 const rowHeight = 34;
 const viewportHeight = 360;
 
 export const DataTable = memo(function DataTable() {
-  const { visiblePoints, tableVersion } = useDataStream();
+  const { visiblePoints } = useTelemetryQuery();
   const [scrollTop, setScrollTop] = useState(0);
   const [tablePoints, setTablePoints] = useState(visiblePoints);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const latestPointsRef = useRef(visiblePoints);
   const deferredTablePoints = useDeferredValue(tablePoints);
   const points = useMemo(() => deferredTablePoints.slice().reverse(), [deferredTablePoints]);
-  const range = useMemo(() => calculateVirtualRange(points.length, rowHeight, viewportHeight, scrollTop, 6), [points.length, scrollTop]);
+  const range = useVirtualization(points.length, rowHeight, viewportHeight, scrollTop, 6);
   const rows = useMemo(() => points.slice(range.startIndex, range.endIndex), [points, range]);
 
   useEffect(() => {
@@ -32,8 +32,11 @@ export const DataTable = memo(function DataTable() {
   }, [visiblePoints]);
 
   useEffect(() => {
-    setTablePoints(latestPointsRef.current);
-  }, [tableVersion]);
+    const timer = setInterval(() => {
+      setTablePoints((current) => current === latestPointsRef.current ? current : latestPointsRef.current);
+    }, 500);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <div className="table-wrap">

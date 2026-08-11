@@ -1,9 +1,13 @@
 "use client";
 
-import { useDataStream } from "@/hooks/useDataStream";
+import { useDashboardControls, useTelemetryActions } from "@/hooks/useDashboardControls";
 
 export function DashboardHeader() {
-  const { isPaused, pause, resume, reset } = useDataStream();
+  const { isPaused, sourceKind, sourceStatus } = useDashboardControls();
+  const { pause, resume, reset } = useTelemetryActions();
+  const statusText = sourceKind === "remote"
+    ? sourceStatus.state === "connected" ? "Backend connected" : sourceStatus.state === "reconnecting" || sourceStatus.state === "degraded" ? "Backend reconnecting" : sourceStatus.state === "error" || sourceStatus.state === "offline" ? "Backend unavailable" : "Backend connecting"
+    : isPaused ? "Simulation paused" : "Simulation live";
   return (
     <header className="dashboard-header">
       <div>
@@ -11,7 +15,7 @@ export function DashboardHeader() {
         <h1>Real-time distributed service telemetry</h1>
       </div>
       <div className="header-actions">
-        <span className={isPaused ? "status paused" : "status live"}>{isPaused ? "Paused" : "Live"}</span>
+        <span className={sourceStatus.state === "error" ? "status paused" : isPaused ? "status paused" : "status live"} title={sourceStatus.message}>{statusText}</span>
         <button type="button" onClick={isPaused ? resume : pause}>{isPaused ? "Resume" : "Pause"}</button>
         <button type="button" onClick={reset}>Reset</button>
       </div>
