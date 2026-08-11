@@ -1,263 +1,161 @@
 # Observa
 
-Production-style observability platform with realtime telemetry, workspace tenancy, dashboards, alerts, notifications, audit logging, a service catalog, a reusable Query Engine, and incident intelligence.
+Observa is a production-oriented full-stack observability platform for ingesting, querying, visualizing, alerting on, and analyzing telemetry across workspaces and services. It combines a Next.js dashboard with a FastAPI backend, PostgreSQL, Redis, Celery, authenticated SSE streams, and a reusable telemetry Query Engine.
 
-[Live Demo](https://performance-dashboard-rose.vercel.app/dashboard)  
-[GitHub Repository](https://github.com/ayushxt25/Observa)
+`Next.js 16` `React 19` `TypeScript` `FastAPI` `PostgreSQL` `Redis` `Celery` `Canvas` `SVG`
 
-`Next.js 16` `React 19` `TypeScript` `FastAPI` `PostgreSQL` `Redis` `Celery` `Canvas` `SVG` `Vitest` `Pytest`
+## Live Demo
 
-Observa v1.0.0 keeps the high-performance local simulation path while adding a secure multi-tenant backend data plane for API-key ingestion, authenticated SSE, historical analytics, incident response workflows, and durable alert delivery.
+- Frontend: [https://performance-dashboard-rose.vercel.app](https://performance-dashboard-rose.vercel.app)
+- API base URL: `https://observa-production-d905.up.railway.app`
+- API docs: [https://observa-production-d905.up.railway.app/docs](https://observa-production-d905.up.railway.app/docs)
+- Repository: [https://github.com/ayushxt25/Observa](https://github.com/ayushxt25/Observa)
 
-## Project Preview
+Users can create an account in the live demo. Registration creates a default workspace and owner membership.
 
-![PulseGrid dashboard overview](public/screenshots/dashboard-overview.png)
+## Screenshots
 
-Dashboard overview captured from the deployed application. It shows the live telemetry header, KPI cards, stream controls, performance monitor, Canvas charts, heatmap, and virtualized table.
+![Observa dashboard overview](public/screenshots/dashboard-overview.png)
 
-![PulseGrid stress test mode](public/screenshots/stress-test.png)
+Live telemetry dashboard with stream controls, KPI cards, custom charts, and the performance monitor.
 
-Stress-test mode using the real UI and live measured values. The screenshot is not edited and does not fabricate performance numbers.
+![Observa stress-test mode](public/screenshots/stress-test.png)
 
-![PulseGrid mobile dashboard](public/screenshots/mobile-dashboard.png)
+Stress-test mode using the same dashboard UI and retained telemetry controls.
 
-Mobile viewport showing the responsive control panel and chart layout.
+![Observa mobile dashboard](public/screenshots/mobile-dashboard.png)
 
-![PulseGrid virtualized table](public/screenshots/virtualized-table.png)
+Responsive mobile dashboard layout.
 
-Raw telemetry table with custom virtual scrolling and rendered-row count.
+![Observa virtualized table](public/screenshots/virtualized-table.png)
 
-## Overview
+Raw telemetry table with custom virtual scrolling.
 
-Observa is a dark observability-style platform for monitoring distributed application services. It supports simulated telemetry for local demos and remote workspace-scoped telemetry ingested through machine API keys.
+## What Observa Does
 
-The project is intentionally performance-focused. It retains large datasets in bounded memory, ingests new telemetry every 100ms, avoids external chart libraries, and renders dense chart marks manually with Canvas. Lightweight SVG and HTML layers handle axes, labels, descriptions, controls, and interaction affordances where DOM-based rendering is more appropriate.
-
-The project is designed as a portfolio-grade full-stack system: realtime client architecture, tenant-scoped backend APIs, PostgreSQL query aggregation, Redis-backed streaming/cache paths, Celery workers, RBAC, audit logs, and incident intelligence.
-
-## Key Features
-
-- Real-time simulated telemetry updates every 100ms.
-- Typed telemetry model with services, regions, statuses, latency, throughput, CPU, memory, error rate, and payload size.
-- Capacity presets for 10,000, 50,000, and 100,000 retained points.
-- Fixed-capacity circular buffer to prevent unbounded memory growth.
-- Pause, resume, reset, batch-size controls, and stress-test mode.
-- Service filtering and time-range selection.
-- Raw, 1-minute, 5-minute, and 1-hour aggregation modes.
-- Canvas line chart for latency over time with zoom, pan, reset view, hover tooltip, and viewport-aware downsampling.
-- Canvas bar chart for throughput by service.
-- Canvas scatter plot for payload size versus latency.
-- Service latency heatmap.
-- SVG overlays for semantic chart structure, axis lines, tick labels, and the latency crosshair.
-- Custom virtualized telemetry table without an external virtualization library.
-- Visible performance monitor for FPS, frame duration, chart render duration, data-processing duration, interaction latency, retained/generated points, long tasks, and heap support detection.
-- Web Worker aggregation path with stale-response protection and main-thread fallback.
-- Responsive desktop, tablet, and mobile layout.
-- App Router loading and error boundaries.
-- Bundle-size analysis script for aggregate browser JavaScript assets.
-- Optional remote backend mode using the FastAPI telemetry API, workspace API keys, and authenticated SSE.
-- Workspace-scoped dashboards, alerts, incidents, services, audit events, notifications, and telemetry queries.
-- PostgreSQL Query Engine for historical Line/Stat/Bar dashboard widgets, service health, and alert evaluation.
-- Durable incident timeline and dependency-aware blast-radius impact analysis.
-- Focused Vitest coverage for the ring buffer, aggregation, downsampling, virtualization range calculation, and time-range filtering.
-
-## Performance Highlights
-
-- **Bounded retention:** telemetry is stored in a fixed-capacity ring buffer rather than an ever-growing array.
-- **Decoupled ingestion and rendering:** new telemetry is generated every 100ms, while React receives batched lightweight updates instead of replacing the full retained dataset every tick.
-- **Canvas for dense marks:** line, bar, and scatter chart marks are drawn to Canvas to avoid thousands of DOM nodes.
-- **SVG and HTML overlays:** SVG provides semantic chart titles/descriptions, axes, tick labels, and crosshair elements; HTML handles controls, legends, and tooltips.
-- **Viewport-aware downsampling:** the latency line reduces rendered points when source data substantially exceeds available horizontal pixels.
-- **Worker-backed processing:** aggregation and heatmap calculation can run in a Web Worker, with request IDs used to ignore stale responses.
-- **Custom virtualization:** the raw telemetry table renders only visible rows plus overscan and displays rendered rows versus total rows.
-- **Measured bundle asset size:** `npm run analyze:size` reported `752,320` raw bytes and `221,455` gzip bytes across aggregate `.next/static/chunks` JavaScript assets during the Phase 14 release-candidate build.
-
-The bundle-size result is an aggregate build-asset measurement. It may include shared chunks that are not all loaded on the dashboard route. Runtime performance varies by device, browser, build, and active controls. See [PERFORMANCE.md](PERFORMANCE.md) for methodology, caveats, and scaling notes.
+- Workspace-based authentication, membership, ownership, and RBAC.
+- Email/password auth with short-lived access JWTs and HttpOnly refresh sessions.
+- Workspace API keys for machine telemetry ingestion.
+- Workspace-scoped telemetry persistence in PostgreSQL.
+- Authenticated workspace SSE streams backed by Redis Streams.
+- Persisted configurable dashboards and widgets.
+- Custom Canvas/SVG line, bar, scatter, heatmap, stat, and table views.
+- PostgreSQL Query Engine for historical metrics, buckets, groups, and percentiles.
+- Redis-backed Query Engine cache for public historical queries.
+- Alert rules, incidents, cooldown behavior, and concurrency-safe transitions.
+- Durable email/webhook notification channels and delivery history.
+- Append-oriented audit logging for security-sensitive and product mutations.
+- Service Catalog with metadata, health summaries, dependencies, and topology.
+- Incident timeline and dependency-aware blast-radius analysis.
 
 ## Architecture
 
-```mermaid
-flowchart TD
-  A["SimulationTelemetrySource<br/>replaceable future source"] --> B["TelemetryStore<br/>bounded RingBuffer"]
-  B --> C["Telemetry Query Layer<br/>range, filter, aggregation"]
-  C --> D["TelemetryWorkerClient<br/>worker or fallback"]
-  D --> E["Render-ready data"]
-  E --> F["Canvas/SVG Charts"]
-  B --> G["Virtualized telemetry table"]
-  H["Control Context<br/>pause, capacity, filters"] --> A
-  H --> C
+```text
+Vercel / Next.js
+        |
+        v
+Railway / FastAPI
+        |
+        +--> PostgreSQL
+        |       source of truth for users, workspaces, telemetry,
+        |       dashboards, alerts, incidents, services, audit logs
+        |
+        +--> Redis
+        |       workspace SSE streams, rate limits, query cache,
+        |       Celery broker/result backend
+        |
+        +--> Celery worker / beat
+                scheduled alert evaluation, notification delivery,
+                retry scanning
 ```
 
-```mermaid
-flowchart LR
-  Browser["Next.js Browser UI"] --> API["FastAPI API"]
-  Browser <-->|"Authenticated fetch SSE"| API
-  API --> PG[("PostgreSQL")]
-  API --> Redis[("Redis Streams + Query Cache")]
-  API --> Worker["Celery Worker"]
-  Beat["Celery Beat"] --> Worker
-  Worker --> PG
-  Worker --> Redis
-  API --> Query["Telemetry Query Engine"]
-  Query --> PG
-  Query --> Redis
-  API --> Incident["Alerts / Incidents / Intelligence"]
-  Incident --> Worker
-```
+PostgreSQL is the durable source of truth. Redis is used for bounded live telemetry streams, short-lived query caching, rate limiting, and background task coordination. Celery runs scheduled alert evaluation and asynchronous notification delivery so network calls are not performed inside request/alert transition paths.
 
-### Data Flow
+The frontend consumes live telemetry through authenticated fetch-based SSE and uses the backend Query Engine for historical dashboard Line, Stat, and supported Bar queries. Short live windows, Scatter, and Heatmap continue to use the local `TelemetryStore` path.
 
-1. `app/dashboard/page.tsx` generates the initial dataset as a Server Component.
-2. `DashboardClient` passes that data into `DataProvider`.
-3. `SimulationTelemetrySource` emits batches through the same source interface a future remote source can implement.
-4. `RemoteTelemetrySource` can instead poll the FastAPI backend, map API DTOs to frontend telemetry events, and feed the same store.
-5. `TelemetryStore` owns bounded retention and exposes immutable lightweight snapshots plus query/read methods.
-6. Query and worker layers derive filtered, aggregated, and render-ready data when controls change. In remote mode, historical Line/Stat/Bar widgets use `POST /api/v1/query`; short-window live widgets use TelemetryStore/SSE.
-7. Chart components render dense marks on Canvas and use SVG/HTML for lightweight overlays.
-8. The telemetry table computes a visible range from `scrollTop` and renders only rows in that range plus overscan.
+## Core Technical Highlights
+
+- Server-side workspace isolation on dashboard, widget, alert, incident, service, audit, notification, and telemetry APIs.
+- API-key ingestion derives workspace identity from the key; clients cannot submit arbitrary `workspaceId`.
+- Authenticated SSE uses access tokens and active workspace headers; telemetry stream IDs are separate from telemetry event IDs.
+- Query Engine supports allowlisted metrics, fixed bucket sizes, optional group-by, strict schemas, defensive limits, and PostgreSQL percentile functions.
+- Redis Query Engine cache uses workspace-aware keys, TTLs, JSON DTO serialization, and PostgreSQL fallback on Redis failure.
+- Alert evaluation bypasses query cache to preserve fresh incident transitions.
+- Incident transitions use database constraints and row locking to avoid duplicate active incidents.
+- Notification delivery is durable, asynchronous, retryable, and idempotent by incident/channel/event.
+- Audit and incident metadata use safe structured fields rather than raw request bodies.
+- Service dependency impact walks upstream dependents where `source -> target` means source depends on target.
+
+## Performance / Verification
+
+These are local measurements from the repository validation notes, not production traffic guarantees.
+
+- Backend tests: `161 passed`.
+- Frontend tests: `57 passed`.
+- Bundle analysis: `752,320` raw JS bytes and `221,455` gzip bytes across aggregate `.next/static/chunks` assets.
+- Local API-key ingestion: about `7.5k events/s` for a 10,000-event batch on the measured Docker setup.
+- Local Query Engine samples: about `11 ms` for a p95 latency query with a service filter, and about `62 ms` for grouped p95 by service.
+- Dashboard retention controls include `10,000`, `50,000`, and `100,000` point capacity presets; the live path uses a fixed-capacity store and custom rendering rather than a charting library.
+
+See [PERFORMANCE.md](PERFORMANCE.md) for methodology, caveats, and additional local measurements.
 
 ## Tech Stack
 
+Frontend:
 - Next.js App Router
 - React
 - TypeScript
-- Canvas 2D API
-- SVG overlays
+- Canvas 2D and SVG
 - Web Workers
-- ResizeObserver
-- PerformanceObserver
-- Vitest
-- ESLint
+- Vitest, ESLint
 
-No charting library, component library, external frontend state-management library, WebSocket server, distributed tracing stack, Kafka, or billing/OAuth provider is used.
+Backend:
+- FastAPI
+- Pydantic v2
+- SQLAlchemy 2
+- Alembic
+- PyJWT
+- Passlib/bcrypt
+- Pytest
 
-## Next.js Implementation
+Data / messaging:
+- PostgreSQL
+- Redis Streams
+- Redis query cache
+- Celery worker and beat
 
-- `/dashboard` is implemented with the App Router.
-- `app/dashboard/page.tsx` remains a Server Component for initial telemetry generation.
-- Interactive dashboard functionality is isolated in Client Components.
-- `/api/data` is an App Router Route Handler for generated telemetry batches.
-- `loading.tsx` and `error.tsx` provide route-level loading and error states.
-- The production build statically generates `/dashboard` and serves `/api/data` dynamically.
+Deployment:
+- Vercel frontend
+- Railway backend
+- Railway PostgreSQL
+- Railway Redis
 
-## Project Structure
+## Local Development
 
-```text
-app/
-  api/data/route.ts          Generated telemetry Route Handler
-  dashboard/                 App Router dashboard route
-components/
-  charts/                    Manual Canvas charts and SVG overlays
-  controls/                  Stream controls and time-range selector
-  dashboard/                 Dashboard shell, header, KPI cards
-  providers/                 Ref-backed DataProvider
-  ui/                        Performance monitor and virtualized table
-hooks/
-  useDataStream.ts           Typed data Context hook
-lib/
-  telemetry/                  Domain types, source, store, query layer
-  workers/                    Typed worker client abstraction
-  performance/                Shared marks and metrics helpers
-  rendering/                  Canvas, scale, viewport helpers
-  visualization/              Chart input contracts
-  aggregation.ts             Filtering, aggregation, heatmap helpers
-  canvasUtils.ts             Canvas setup and downsampling helpers
-  dataGenerator.ts           Deterministic telemetry generator
-  performanceUtils.ts        Virtualization range calculation
-  ringBuffer.ts              Fixed-capacity circular buffer
-  types.ts                   Shared TypeScript types
-workers/
-  data.worker.ts             Worker aggregation path
-tests/
-  *.test.ts                  Focused Vitest tests for pure behavior
-scripts/
-  analyze-size.mjs           Aggregate JavaScript asset-size analyzer
-public/screenshots/
-  *.png                      README screenshots captured from deployment
-backend/
-  app/                       FastAPI backend for persistent telemetry
-docs/
-  telemetry-api.md           Frontend/backend API contract
-```
-
-## Getting Started
+Clone and install frontend dependencies:
 
 ```bash
+git clone https://github.com/ayushxt25/Observa.git
+cd Observa
 npm install
-npm run dev
 ```
 
-Open `http://localhost:3000/dashboard`.
-
-For remote backend mode, create `.env.local` from `.env.example`:
+Create `.env.local` for the frontend:
 
 ```bash
 NEXT_PUBLIC_OBSERVA_API_URL=http://localhost:8001
 ```
 
-Start the backend with Docker, seed data, then choose `Remote backend` in the Stream controls panel:
+Start backend services from the repository root:
 
 ```bash
 docker compose up --build
+```
+
+The Compose backend runs Alembic before Uvicorn startup. If running the backend manually from `backend/`, run migrations yourself:
+
+```bash
 cd backend
-python -m scripts.generate_telemetry --count 10000 --batch-size 500 --seed 42
-```
-
-## Available Scripts
-
-```bash
-npm run dev
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-npm run start
-npm run analyze:size
-```
-
-`analyze:size` expects a completed production build and reads JavaScript assets from `.next/static/chunks`.
-
-## Backend Development
-
-Phase 2 adds a backend foundation under [backend/](backend/) without replacing the current frontend simulator. The backend is ready for a future remote telemetry source and provides persistent ingestion, SQL-backed metric queries, service discovery, dependency health checks, and Redis Stream publishing for future live delivery.
-Phase 3 connects the dashboard to that backend through `RemoteTelemetrySource`.
-Phase 4 adds live Server-Sent Events. `RemoteTelemetrySource` hydrates a bounded historical window over HTTP, then opens `/api/v1/telemetry/stream` from a Redis Stream cursor for incremental live batches. HTTP polling remains as a degraded fallback if SSE is unavailable.
-Phase 5 adds persisted dashboard definitions, configurable widgets, saved widget ordering, and frontend-evaluated threshold rules without changing the telemetry stream architecture.
-Phase 6 adds server-side alert rules, Celery-backed periodic evaluation, and durable incident history. Alerts are evaluated from PostgreSQL metrics on the backend; the browser only manages rules and displays state.
-
-Phase 7 adds first-party email/password authentication, workspace membership, and RBAC for saved dashboards and alerting resources. Registration creates a user, default workspace, and owner membership. Access tokens are short-lived JWTs kept in browser memory; refresh tokens are opaque HttpOnly cookies, stored only as hashes, rotated on refresh, and revoked on logout. Auth endpoints include a lightweight Redis-backed rate limiter.
-
-PostgreSQL is the durable telemetry store. Telemetry is workspace-scoped in Phase 8 and machine ingestion uses workspace API keys. Redis Streams are used only for recent live transport/replay with one bounded stream per workspace, using `telemetry:events:{workspaceId}` and `TELEMETRY_STREAM_MAXLEN`. `TelemetryStore` deduplicates by telemetry event id to tolerate replay boundaries.
-
-```mermaid
-flowchart TD
-  A["FastAPI telemetry API"] --> B["Pydantic v2 validation"]
-  B --> C["IngestionService"]
-  C --> D["SQLAlchemy repository"]
-  D --> E["PostgreSQL telemetry_events"]
-  C --> F["Redis Stream broker"]
-  G["Metric query API"] --> D
-```
-
-Backend stack:
-
-- FastAPI with OpenAPI docs at `http://localhost:8000/docs`.
-- PostgreSQL with SQLAlchemy 2.x models and Alembic migrations.
-- Redis Streams for publishing newly ingested telemetry batches.
-- Server-Sent Events for live telemetry delivery from Redis Streams.
-- Celery worker and beat services for asynchronous alert evaluation.
-- Pydantic v2 schemas using camelCase JSON compatible with the frontend telemetry model.
-- Pytest coverage for validation, API dependency overrides, query allowlists, and health behavior.
-
-Docker startup from the repository root:
-
-```bash
-docker compose up --build
-```
-
-Local Python startup from `backend/`:
-
-```bash
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -266,47 +164,74 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-Seed deterministic telemetry into a running backend:
+Start the frontend:
 
 ```bash
-python -m scripts.generate_telemetry --count 10000 --batch-size 500 --seed 42
+npm run dev
 ```
 
-To test live mode, start the frontend, choose `Remote backend`, then ingest additional telemetry. The dashboard should hydrate from PostgreSQL and receive new batches through SSE without a manual refresh.
+Expected local URLs:
 
-Backend API contract details are documented in [docs/telemetry-api.md](docs/telemetry-api.md). Backend-specific setup details are in [backend/README.md](backend/README.md).
+- Frontend: [http://localhost:3000](http://localhost:3000)
+- Dashboard: [http://localhost:3000/dashboard](http://localhost:3000/dashboard)
+- Backend API: [http://localhost:8001](http://localhost:8001)
+- Backend docs: [http://localhost:8001/docs](http://localhost:8001/docs)
 
-## Dashboard Persistence
+To generate telemetry against a running backend, create a workspace API key in the UI and pass it to the generator:
 
-Observa now supports a built-in default dashboard plus saved dashboards persisted in PostgreSQL. Saved dashboards store widget title, visualization type, metric, service/region filters, aggregation, bucket, time range, position, size, and warning/critical thresholds. The selected dashboard id is remembered in `localStorage`; dashboard definitions remain backend-owned.
+```bash
+cd backend
+python -m scripts.generate_telemetry --url http://localhost:8001 --api-key <api-key> --count 10000 --batch-size 500 --seed 42
+```
 
-Widget rendering still flows through the existing telemetry store/query pipeline. The dashboard configuration layer does not create additional SSE connections, does not move telemetry arrays into React Context, and does not fetch directly inside chart components. If the dashboard API is unavailable, the built-in default dashboard remains usable with simulation mode.
+## Production Deployment
 
-## Alerting
+Current deployment:
 
-Alert rules are persisted in PostgreSQL and evaluated by Celery using indexed time-window metric queries. Celery beat scans for due rules every 5 seconds by default, and rule evaluation intervals have a 5-second minimum so short intervals are not hidden behind a slower scheduler. The alert state machine is `normal -> firing -> normal`; incident records use `firing` and `resolved`. One active firing incident per rule is allowed. Cooldown prevents immediate reopen side effects after a rule resolves, but an already-firing rule remains visible as firing.
+- Frontend: Vercel
+- Backend: Railway
+- PostgreSQL: Railway
+- Redis: Railway
 
-The frontend Alerts panel supports rule create/edit/enable-disable/delete, manual evaluation, and incident history polling. Dashboard, alert, incident and telemetry APIs are workspace-scoped with roles `owner`, `admin`, `member`, and `viewer`. Notifications, acknowledgements, Slack/email/PagerDuty integrations, OAuth, billing and enterprise identity are intentionally deferred.
+The frontend expects `NEXT_PUBLIC_OBSERVA_API_URL` to be the backend base URL only, without `/api/v1`.
 
-Phase 9 adds workspace-scoped notification channels for alert delivery. Owners/admins can configure reusable email and generic webhook channels, attach them to alert rules, and inspect durable delivery history. Alert transitions create pending delivery rows in PostgreSQL and Celery workers deliver them asynchronously, with retry/backoff and idempotency on `(incident, channel, event)`. Webhooks support optional HMAC-SHA256 signing; webhook secrets are encrypted at rest and never returned by the API. SMTP settings are environment-driven for email delivery.
+```bash
+NEXT_PUBLIC_OBSERVA_API_URL=https://observa-production-d905.up.railway.app
+```
 
-Phase 10 adds workspace-scoped audit logs for security-sensitive and product mutations. Audit events are generated server-side, append-only through the API surface, bounded/paginated on read, and restricted to owner/admin roles. Metadata is sanitized recursively so passwords, tokens, API keys, webhook secrets, cookies, authorization headers and similar secret fields are redacted before persistence.
+The backend Docker startup runs:
 
-Phase 11 turns telemetry service names into a workspace-scoped Service Catalog. Successful ingestion auto-discovers catalog rows from accepted telemetry batches, updates `lastSeenAt` per unique service, and keeps the canonical telemetry `service` name stable while allowing editable display names, ownership metadata, environment, version, links, and tags. Manually configured service dependencies power a lightweight SVG topology map; Observa does not infer distributed-trace relationships yet.
+```bash
+alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+```
 
-Service health is derived from recent telemetry and alert state rather than persisted as a fake flag. A five-minute recent window feeds event count, average latency, error rate, throughput, active alert count, and active incident count. Services with no recent telemetry are `unknown`; active incidents or severe recent latency/error rates are `critical`; active firing alerts or elevated latency/error rates are `degraded`; otherwise the service is `healthy`.
+Production backend settings must include explicit frontend CORS origins, secure cookies, strong JWT/notification secrets, and Railway PostgreSQL/Redis URLs. Secrets are not documented in this repository.
 
-Phase 12 adds a reusable backend Query Engine for workspace-scoped telemetry analytics. Historical dashboard Line, Stat, and the supported throughput Bar path use `POST /api/v1/query`; short live windows, Scatter, and Heatmap continue to use `TelemetryStore` and SSE. Phase 12F adds a Redis cache behind public historical Query Engine requests. The frontend still keeps its 10-second in-flight/result cache, so the normal flow is frontend miss -> backend miss -> PostgreSQL, then later frontend miss -> backend Redis hit within the backend TTL. Alert evaluation bypasses this cache to preserve fresh incident transitions.
+## API
 
-Phase 13 adds incident intelligence. Incident open/resolve transitions write durable, low-noise timeline events in the same transaction as incident state changes. Notification delivery milestones are derived from the existing durable delivery history. Dependency impact uses the Service Catalog graph where `source -> target` means source depends on target; an incident on the target affects upstream dependents transitively. Impact is separate from observed service health, so an upstream service can be marked affected without changing its telemetry-derived health.
+Live Swagger docs are available at:
 
-## Authentication And RBAC
+[https://observa-production-d905.up.railway.app/docs](https://observa-production-d905.up.railway.app/docs)
 
-Workspace roles are ordered `viewer < member < admin < owner`. Viewers are read-only, members can edit dashboards and alerts, admins can also manage non-owner memberships, and owners have full workspace control. Final-owner demotion and removal are blocked. Frontend workspace selection is stored as a preference only; the backend validates membership on every scoped request using `Authorization` and `X-Workspace-Id`.
+Major API groups:
 
-## Validation
+- `/api/v1/auth`
+- `/api/v1/workspaces`
+- `/api/v1/telemetry`
+- `/api/v1/query`
+- `/api/v1/dashboards`
+- `/api/v1/alerts`
+- `/api/v1/incidents`
+- `/api/v1/services`
+- `/api/v1/notification-channels`
+- `/api/v1/notification-deliveries`
+- `/api/v1/audit-events`
 
-The project is validated with:
+`GET /api/v1/metrics/query` remains as a deprecated compatibility endpoint. Current historical dashboard widgets use `POST /api/v1/query`.
+
+## Testing
+
+Frontend:
 
 ```bash
 npm run lint
@@ -315,34 +240,63 @@ npm run test
 npm run build
 ```
 
-The test suite covers:
+Backend:
 
-- Circular-buffer overwrite behavior.
-- Aggregation correctness and aggregation shape changes.
-- Time-range filtering.
-- Viewport-aware downsampling.
-- Virtualized table range calculation.
+```bash
+cd backend
+python -m pytest
+python -m alembic heads
+python -m alembic current
+```
 
-## Deployment
+Docker:
 
-The live deployment is available at:
+```bash
+docker compose config
+docker compose ps
+```
 
-https://performance-dashboard-rose.vercel.app/dashboard
+CI runs frontend lint/typecheck/test/build and backend Alembic/Pytest against PostgreSQL and Redis services.
 
-The app can be deployed as a standard Next.js application on Vercel or any host that supports the Next.js App Router production build.
+## Repository Structure
 
-## Browser Notes
+```text
+app/                    Next.js App Router pages and route handlers
+components/             Dashboard, charts, controls, providers, UI
+hooks/                  Frontend hooks
+lib/                    Telemetry store, API clients, query mapping, rendering utilities
+workers/                Web Worker aggregation path
+tests/                  Vitest frontend tests
+backend/
+  app/                  FastAPI application
+  alembic/              Database migrations
+  scripts/              Telemetry generator
+  tests/                Pytest backend tests
+docs/                   API and architecture documentation
+public/screenshots/     README screenshots
+```
 
-PulseGrid uses Canvas, SVG, ResizeObserver, Web Workers, requestAnimationFrame, and PerformanceObserver. Heap usage is shown only when the browser exposes `performance.memory`; otherwise the dashboard reports `Not supported`.
+## Release
 
-## Limitations
+Current release: `v1.0.0`.
 
-- Local simulation remains available; remote mode uses the FastAPI/PostgreSQL/Redis backend when configured.
-- Service dependencies are manually configured unless a future telemetry payload explicitly carries relationship metadata.
-- Worker requests currently receive snapshots rather than shared typed-array buffers.
-- Benchmark values other than the aggregate JavaScript asset-size measurement are intentionally left as measurement placeholders in `PERFORMANCE.md`.
-- Browser support for heap and long-task reporting varies.
+See [CHANGELOG.md](CHANGELOG.md) for the release summary and limitations.
 
-## Documentation
+## Known Limitations
 
-- [PERFORMANCE.md](PERFORMANCE.md) explains rendering decisions, bounded memory, worker usage, virtualization, measurement methodology, and scaling considerations.
+- No OAuth/social login.
+- No OpenTelemetry Collector or distributed tracing integration.
+- No Slack/PagerDuty/Teams notification integrations.
+- No billing, SSO, SCIM, or enterprise organization hierarchy.
+- Service dependencies are manually configured; Observa does not infer dependency graphs from traces.
+- Notification delivery is at-least-once; webhook consumers should deduplicate using the delivery identifier.
+- Redis Query Engine cache does not include a distributed stampede lock.
+- `GET /api/v1/metrics/query` is retained for compatibility.
+- The deployment is a portfolio/demo-scale production deployment, not a claim of large-scale production traffic.
+
+## Additional Documentation
+
+- [PERFORMANCE.md](PERFORMANCE.md)
+- [backend/README.md](backend/README.md)
+- [docs/telemetry-api.md](docs/telemetry-api.md)
+- [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
