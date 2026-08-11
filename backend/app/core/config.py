@@ -55,10 +55,18 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def production_secrets_are_explicit(self) -> "Settings":
-        if self.app_env == "production" and (
-            self.notification_secret_key.startswith("dev-") or len(self.notification_secret_key) < 32
-        ):
+        if self.app_env != "production":
+            return self
+        if self.jwt_secret_key.startswith("dev-") or self.jwt_secret_key in {"change-me", "dev-only-change-me"} or len(self.jwt_secret_key) < 32:
+            raise ValueError("JWT_SECRET_KEY must be explicitly configured in production")
+        if self.notification_secret_key.startswith("dev-") or self.notification_secret_key.startswith("change-me") or len(self.notification_secret_key) < 32:
             raise ValueError("NOTIFICATION_SECRET_KEY must be explicitly configured in production")
+        if not self.cookie_secure:
+            raise ValueError("COOKIE_SECURE must be true in production")
+        if "*" in self.allowed_origins:
+            raise ValueError("CORS_ORIGINS cannot include '*' in production")
+        if self.webhook_allow_private_networks:
+            raise ValueError("WEBHOOK_ALLOW_PRIVATE_NETWORKS must be false in production")
         return self
 
     @property

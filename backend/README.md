@@ -1,8 +1,8 @@
 # Observa Backend
 
-FastAPI backend foundation for Observa telemetry ingestion, persistence, query, aggregation, and Redis-backed publish flow.
+FastAPI backend for Observa v1.0.0 telemetry ingestion, persistence, query aggregation, Redis-backed streaming/cache paths, auth/RBAC, alerts, notifications, audit logs, service catalog, and incident intelligence.
 
-The frontend simulator remains active in this phase. This backend is intentionally ready for a future remote telemetry source without changing the existing chart components.
+The frontend simulator remains available for local demos, while the backend provides the workspace-scoped remote telemetry data plane.
 
 ## Stack
 
@@ -155,6 +155,8 @@ The API uses camelCase JSON to align with the frontend domain, while Python mode
 Live SSE reads from workspace Redis Streams; historical HTTP reads remain PostgreSQL-backed and workspace-filtered. Machine ingestion uses `Authorization: Bearer <workspace API key>` or `X-Observa-Api-Key`, and the backend derives `workspace_id` from the key.
 Dashboard endpoints persist view configuration only; they do not store telemetry samples or create live streams.
 
+`GET /api/v1/metrics/query` is deprecated compatibility API for older metric consumers and remains available for v1. Current dashboard historical widgets use `POST /api/v1/query`.
+
 `POST /api/v1/query` is the reusable telemetry Query Engine endpoint. Public historical/dashboard queries use a Redis-backed cache when `QUERY_CACHE_ENABLED=true`; entries are workspace-isolated, expire with `QUERY_CACHE_TTL_SECONDS`, and are capped by `QUERY_CACHE_MAX_BYTES`. Redis failures degrade to PostgreSQL misses rather than failing the query. Alert evaluation explicitly bypasses the cache.
 
 ## Alert Evaluation
@@ -194,3 +196,14 @@ pytest
 ```
 
 Tests use dependency overrides and pure validation/service checks so they do not require a production database.
+
+## Production Configuration Guardrails
+
+When `APP_ENV=production`, startup validation rejects development-grade security defaults:
+
+- `JWT_SECRET_KEY` and `NOTIFICATION_SECRET_KEY` must be explicitly configured and at least 32 characters.
+- `COOKIE_SECURE=true` is required.
+- `CORS_ORIGINS` cannot contain `*`.
+- `WEBHOOK_ALLOW_PRIVATE_NETWORKS=false` is required.
+
+Production deployments must also provide real `DATABASE_URL`, `REDIS_URL`, allowed frontend origins, and SMTP/webhook settings appropriate for their environment.

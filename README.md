@@ -1,14 +1,13 @@
 # Observa
 
-High-performance real-time telemetry dashboard built with Next.js App Router, TypeScript, custom Canvas rendering, SVG overlays, custom table virtualization, bounded in-memory storage, and worker-backed processing.
+Production-style observability platform with realtime telemetry, workspace tenancy, dashboards, alerts, notifications, audit logging, a service catalog, a reusable Query Engine, and incident intelligence.
 
 [Live Demo](https://performance-dashboard-rose.vercel.app/dashboard)  
-[GitHub Repository](https://github.com/ayushxt25/Performance-Dashboard)
+[GitHub Repository](https://github.com/ayushxt25/Observa)
 
-`Next.js 16` `React 19` `TypeScript` `Canvas` `SVG overlays` `Web Worker` `Vitest`
+`Next.js 16` `React 19` `TypeScript` `FastAPI` `PostgreSQL` `Redis` `Celery` `Canvas` `SVG` `Vitest` `Pytest`
 
-The original v1.0.0 recruitment build is preserved; the current architecture prepares the same simulated dashboard for a future replaceable telemetry backend.
-Phase 3 adds an optional remote backend mode while preserving simulation mode.
+Observa v1.0.0 keeps the high-performance local simulation path while adding a secure multi-tenant backend data plane for API-key ingestion, authenticated SSE, historical analytics, incident response workflows, and durable alert delivery.
 
 ## Project Preview
 
@@ -30,11 +29,11 @@ Raw telemetry table with custom virtual scrolling and rendered-row count.
 
 ## Overview
 
-PulseGrid is a dark observability-style dashboard for monitoring simulated distributed application services. It generates telemetry for service latency, throughput, CPU usage, memory usage, error rate, payload size, region, and status.
+Observa is a dark observability-style platform for monitoring distributed application services. It supports simulated telemetry for local demos and remote workspace-scoped telemetry ingested through machine API keys.
 
 The project is intentionally performance-focused. It retains large datasets in bounded memory, ingests new telemetry every 100ms, avoids external chart libraries, and renders dense chart marks manually with Canvas. Lightweight SVG and HTML layers handle axes, labels, descriptions, controls, and interaction affordances where DOM-based rendering is more appropriate.
 
-PulseGrid was built as a recruitment assignment to demonstrate practical frontend architecture: Server Components for initial data, Client Components for interaction, careful React state boundaries, custom chart rendering, Web Worker processing, and production-build validation.
+The project is designed as a portfolio-grade full-stack system: realtime client architecture, tenant-scoped backend APIs, PostgreSQL query aggregation, Redis-backed streaming/cache paths, Celery workers, RBAC, audit logs, and incident intelligence.
 
 ## Key Features
 
@@ -56,7 +55,10 @@ PulseGrid was built as a recruitment assignment to demonstrate practical fronten
 - Responsive desktop, tablet, and mobile layout.
 - App Router loading and error boundaries.
 - Bundle-size analysis script for aggregate browser JavaScript assets.
-- Optional remote backend mode using the FastAPI telemetry API.
+- Optional remote backend mode using the FastAPI telemetry API, workspace API keys, and authenticated SSE.
+- Workspace-scoped dashboards, alerts, incidents, services, audit events, notifications, and telemetry queries.
+- PostgreSQL Query Engine for historical Line/Stat/Bar dashboard widgets, service health, and alert evaluation.
+- Durable incident timeline and dependency-aware blast-radius impact analysis.
 - Focused Vitest coverage for the ring buffer, aggregation, downsampling, virtualization range calculation, and time-range filtering.
 
 ## Performance Highlights
@@ -68,7 +70,7 @@ PulseGrid was built as a recruitment assignment to demonstrate practical fronten
 - **Viewport-aware downsampling:** the latency line reduces rendered points when source data substantially exceeds available horizontal pixels.
 - **Worker-backed processing:** aggregation and heatmap calculation can run in a Web Worker, with request IDs used to ignore stale responses.
 - **Custom virtualization:** the raw telemetry table renders only visible rows plus overscan and displays rendered rows versus total rows.
-- **Measured bundle asset size:** `npm run analyze:size` reported `675,006` raw bytes and `202,121` gzip bytes across aggregate `.next/static/chunks` JavaScript assets for the completed production build.
+- **Measured bundle asset size:** `npm run analyze:size` reported `752,320` raw bytes and `221,455` gzip bytes across aggregate `.next/static/chunks` JavaScript assets during the Phase 14 release-candidate build.
 
 The bundle-size result is an aggregate build-asset measurement. It may include shared chunks that are not all loaded on the dashboard route. Runtime performance varies by device, browser, build, and active controls. See [PERFORMANCE.md](PERFORMANCE.md) for methodology, caveats, and scaling notes.
 
@@ -86,6 +88,23 @@ flowchart TD
   H --> C
 ```
 
+```mermaid
+flowchart LR
+  Browser["Next.js Browser UI"] --> API["FastAPI API"]
+  Browser <-->|"Authenticated fetch SSE"| API
+  API --> PG[("PostgreSQL")]
+  API --> Redis[("Redis Streams + Query Cache")]
+  API --> Worker["Celery Worker"]
+  Beat["Celery Beat"] --> Worker
+  Worker --> PG
+  Worker --> Redis
+  API --> Query["Telemetry Query Engine"]
+  Query --> PG
+  Query --> Redis
+  API --> Incident["Alerts / Incidents / Intelligence"]
+  Incident --> Worker
+```
+
 ### Data Flow
 
 1. `app/dashboard/page.tsx` generates the initial dataset as a Server Component.
@@ -93,7 +112,7 @@ flowchart TD
 3. `SimulationTelemetrySource` emits batches through the same source interface a future remote source can implement.
 4. `RemoteTelemetrySource` can instead poll the FastAPI backend, map API DTOs to frontend telemetry events, and feed the same store.
 5. `TelemetryStore` owns bounded retention and exposes immutable lightweight snapshots plus query/read methods.
-6. Query and worker layers derive filtered, aggregated, and render-ready data when controls change. In remote mode, non-raw latency aggregation can use the backend metric query endpoint.
+6. Query and worker layers derive filtered, aggregated, and render-ready data when controls change. In remote mode, historical Line/Stat/Bar widgets use `POST /api/v1/query`; short-window live widgets use TelemetryStore/SSE.
 7. Chart components render dense marks on Canvas and use SVG/HTML for lightweight overlays.
 8. The telemetry table computes a visible range from `scrollTop` and renders only rows in that range plus overscan.
 
@@ -110,7 +129,7 @@ flowchart TD
 - Vitest
 - ESLint
 
-No charting library, component library, external state-management library, database, authentication layer, WebSocket server, or middleware is used.
+No charting library, component library, external frontend state-management library, WebSocket server, distributed tracing stack, Kafka, or billing/OAuth provider is used.
 
 ## Next.js Implementation
 

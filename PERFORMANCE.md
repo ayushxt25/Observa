@@ -167,12 +167,30 @@ PulseGrid browser JavaScript asset size
 Directory: .next\static\chunks
 Method: recursively sum .js files; source maps are excluded; gzip uses node:zlib gzipSync per asset.
 Note: aggregate build-asset measurement; may include shared chunks not all loaded on the dashboard route.
-JavaScript files counted: 12
-Raw total bytes: 675006
-Gzip total bytes: 202121
+JavaScript files counted: 13
+Raw total bytes: 752320
+Gzip total bytes: 221455
 ```
 
-## Measured Results
+## Phase 14 Release-Candidate Measurements
+
+Measured on the local Docker stack and Chromium smoke session during the v1.0.0 release-candidate pass.
+
+| Area | Scenario | Result | Notes |
+| --- | --- | --- | --- |
+| Ingestion | 1,000 event batch | 0.150 s, about 6,665 events/s | API-key authenticated batch ingest into PostgreSQL plus Redis publish. |
+| Ingestion | 10,000 event batch | 1.321 s, about 7,571 events/s | Same path; Redis and PostgreSQL healthy. |
+| Query Engine | Fixed explicit query repeated | first `miss`, second `hit` | Redis cache key included workspace and normalized request fields. |
+| Query Engine | p95 latency, 1h, service filter | about 11 ms HTTP cold sample | Measured through API on seeded local Docker data. |
+| Query Engine | grouped p95 by service | about 62 ms HTTP cold sample | Measured through API on seeded local Docker data. |
+| Alerts | 12 concurrent breached evaluations | one firing incident, one opened event | PostgreSQL row locking and partial unique index preserved. |
+| Alerts | 12 concurrent clear evaluations | one resolved incident, one resolved event | No duplicate resolution transition. |
+| Incident impact | Four-service chain | depth 3, four affected services | `source -> target` means source depends on target; impact walks reverse dependents. |
+| Browser smoke | Dashboard + incident intelligence | passed desktop, tablet, mobile smoke | No new console errors observed after authenticated flow. |
+| Failure handling | Redis stopped | `/ready` degraded, recovered after restart | Historical queries fall back to PostgreSQL when cache is unavailable. |
+| Failure handling | PostgreSQL stopped | `/ready` degraded, recovered after restart | Expected dependency outage signal. |
+
+## Legacy Browser Stress Table
 
 Measured values must be filled in after running on the target machine. Do not infer or invent them.
 
