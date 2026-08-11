@@ -54,3 +54,56 @@ export interface Incident {
   threshold: number;
   message: string;
 }
+
+export type IncidentTimelineEventType = "incident.opened" | "incident.resolved" | "notification.delivered" | "notification.failed" | string;
+
+export interface IncidentTimelineEvent {
+  id: string;
+  incidentId: string;
+  eventType: IncidentTimelineEventType;
+  sourceType?: string;
+  sourceId?: string;
+  actorType?: string;
+  title: string;
+  metadata: Record<string, unknown>;
+  occurredAt: string;
+}
+
+export interface IncidentTimeline {
+  events: IncidentTimelineEvent[];
+  limited: boolean;
+}
+
+export interface IncidentImpactService {
+  serviceId?: string;
+  name: string;
+  displayName?: string;
+  depth: number;
+  impactStatus: "root_cause" | "affected";
+}
+
+export interface IncidentImpactEdge {
+  id: string;
+  sourceServiceId: string;
+  targetServiceId: string;
+  sourceServiceName: string;
+  targetServiceName: string;
+  dependencyType: string;
+}
+
+export interface IncidentImpact {
+  rootService?: IncidentImpactService;
+  affectedServices: IncidentImpactService[];
+  dependencyEdges: IncidentImpactEdge[];
+  affectedCount: number;
+  maxDepth: number;
+  impactUnavailable: boolean;
+  reason?: string;
+}
+
+export interface IncidentNotificationSummary {
+  pending: number;
+  delivering: number;
+  delivered: number;
+  failed: number;
+}

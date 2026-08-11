@@ -1,5 +1,5 @@
 from app.models.audit import AuditEventModel
-from app.models.alerts import AlertRuleModel, IncidentModel
+from app.models.alerts import AlertRuleModel, IncidentEventModel, IncidentModel
 from app.models.auth import AuthSessionModel, UserModel, WorkspaceApiKeyModel, WorkspaceMembershipModel, WorkspaceModel
 from app.models.dashboard import DashboardModel, DashboardWidgetModel
 from app.models.notifications import AlertNotificationChannelModel, NotificationChannelModel, NotificationDeliveryModel
@@ -14,6 +14,7 @@ __all__ = [
     "DashboardModel",
     "DashboardWidgetModel",
     "IncidentModel",
+    "IncidentEventModel",
     "NotificationChannelModel",
     "NotificationDeliveryModel",
     "ServiceCatalogModel",

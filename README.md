@@ -279,6 +279,8 @@ Service health is derived from recent telemetry and alert state rather than pers
 
 Phase 12 adds a reusable backend Query Engine for workspace-scoped telemetry analytics. Historical dashboard Line, Stat, and the supported throughput Bar path use `POST /api/v1/query`; short live windows, Scatter, and Heatmap continue to use `TelemetryStore` and SSE. Phase 12F adds a Redis cache behind public historical Query Engine requests. The frontend still keeps its 10-second in-flight/result cache, so the normal flow is frontend miss -> backend miss -> PostgreSQL, then later frontend miss -> backend Redis hit within the backend TTL. Alert evaluation bypasses this cache to preserve fresh incident transitions.
 
+Phase 13 adds incident intelligence. Incident open/resolve transitions write durable, low-noise timeline events in the same transaction as incident state changes. Notification delivery milestones are derived from the existing durable delivery history. Dependency impact uses the Service Catalog graph where `source -> target` means source depends on target; an incident on the target affects upstream dependents transitively. Impact is separate from observed service health, so an upstream service can be marked affected without changing its telemetry-derived health.
+
 ## Authentication And RBAC
 
 Workspace roles are ordered `viewer < member < admin < owner`. Viewers are read-only, members can edit dashboards and alerts, admins can also manage non-owner memberships, and owners have full workspace control. Final-owner demotion and removal are blocked. Frontend workspace selection is stored as a preference only; the backend validates membership on every scoped request using `Authorization` and `X-Workspace-Id`.

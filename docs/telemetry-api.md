@@ -385,3 +385,19 @@ Reads require owner/admin role in the active workspace. List filters include `ac
 Audit metadata is recursively redacted before persistence. Passwords, password hashes, access tokens, refresh tokens, API keys, key hashes, webhook secrets, encrypted secret values, SMTP credentials, cookies, and authorization headers must not appear in stored metadata. Product mutation audit rows are mandatory and share the domain mutation transaction. Auth outcome audit rows are best-effort within the available workspace context; unknown-email login failures are not persisted because there is no workspace scope. Client IP currently comes from `request.client.host`; proxy-derived IP support requires explicit trusted-proxy configuration later. Audit logs are append-oriented application records, not a cryptographically immutable ledger; PostgreSQL administrators can still alter records.
 
 Current limitations: there are no Slack/PagerDuty integrations, acknowledgements, escalation, incident assignment, OAuth, password reset or billing flows.
+
+## Incident Intelligence
+
+Incident intelligence is workspace-scoped and read-only for all roles that can read incidents.
+
+Endpoints:
+
+- `GET /api/v1/incidents/{id}/timeline`
+- `GET /api/v1/incidents/{id}/impact`
+- `GET /api/v1/incidents/{id}/notifications/summary`
+
+The timeline contains low-noise incident lifecycle events plus notification delivery milestones. It does not include every alert evaluation tick, telemetry batch, SSE read, or notification retry attempt.
+
+Service dependency direction is `source -> target`, meaning the source service depends on the target service. For an incident rooted at `target`, blast radius walks upstream dependents transitively. Cycles are handled with a visited set, and services reachable through multiple paths are returned once with minimum depth. If an incident has no service-specific alert or the catalog row has been deleted, impact returns an unavailable reason instead of failing.
+
+Impact status is not observed health. A service can be `affected` by a downstream/root dependency while its own telemetry-derived health remains `healthy`.

@@ -207,3 +207,7 @@ At 10ms updates, generation should batch writes, aggregate incrementally and red
 ## Browser Compatibility Notes
 
 Modern Chromium, Firefox and Safari support the core Canvas, SVG and ResizeObserver path. Long-task counts depend on PerformanceObserver longtask support. Worker fallback covers environments without Web Worker support.
+
+## Incident Intelligence
+
+Incident impact queries avoid per-node database access. The backend loads the incident/alert root, the workspace service catalog, and the workspace dependency graph, then performs an in-memory breadth-first traversal over upstream dependents. This is intended to be trivial for 10-100 services and usable for several hundred services; dependency impact remains distinct from telemetry-derived service health.

@@ -92,6 +92,7 @@ class AlertRepository:
             threshold=rule.threshold,
             message=f"{rule.name} firing: {rule.metric} {rule.operator} {rule.threshold} (value {value:.3f})",
         )
+        incident.alert_rule = rule
         self.db.add(incident)
         return incident
 

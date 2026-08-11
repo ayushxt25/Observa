@@ -5,8 +5,9 @@ import { AlertsApi } from "@/lib/api/alerts";
 import { AuditApi } from "@/lib/api/audit";
 import { NotificationsApi } from "@/lib/api/notifications";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { affectedServiceNames, formatDuration, incidentDurationMs, notificationSummaryText, timelineLabel } from "@/lib/alerts/intelligence";
 import { validateAlertDraft } from "@/lib/alerts/validation";
-import type { AlertAggregation, AlertBucket, AlertOperator, AlertRule, AlertRuleDraft, Incident } from "@/lib/alerts/types";
+import type { AlertAggregation, AlertBucket, AlertOperator, AlertRule, AlertRuleDraft, Incident, IncidentImpact, IncidentNotificationSummary, IncidentTimeline } from "@/lib/alerts/types";
 import type { NotificationChannel, NotificationChannelDraft, NotificationDelivery } from "@/lib/notifications/types";
 import type { AuditEvent } from "@/lib/audit/types";
 import type { MetricName, Region, ServiceId } from "@/lib/types";
@@ -53,6 +54,11 @@ export function AlertsPanel() {
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [deliveries, setDeliveries] = useState<NotificationDelivery[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [timeline, setTimeline] = useState<IncidentTimeline | null>(null);
+  const [impact, setImpact] = useState<IncidentImpact | null>(null);
+  const [notificationSummary, setNotificationSummary] = useState<IncidentNotificationSummary | null>(null);
+  const [incidentDetailError, setIncidentDetailError] = useState<string | null>(null);
   const [draft, setDraft] = useState<AlertRuleDraft>(initialDraft);
   const [channelDraft, setChannelDraft] = useState<NotificationChannelDraft>(initialChannelDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -61,7 +67,14 @@ export function AlertsPanel() {
   const canEdit = auth.activeWorkspace?.role !== "viewer";
   const canManageChannels = auth.activeWorkspace?.role === "owner" || auth.activeWorkspace?.role === "admin";
   const latestRequestRef = useRef(0);
+  const detailRequestRef = useRef(0);
+  const selectedIncidentRef = useRef<string | null>(null);
+  const incidentSelectionClearedRef = useRef(false);
   const pollingInFlightRef = useRef(false);
+
+  useEffect(() => {
+    selectedIncidentRef.current = selectedIncidentId;
+  }, [selectedIncidentId]);
 
   const reload = useCallback(async (signal?: AbortSignal, skipIfPending = false) => {
     if (skipIfPending && pollingInFlightRef.current) return;
@@ -73,6 +86,9 @@ export function AlertsPanel() {
       if (signal?.aborted || requestId !== latestRequestRef.current) return;
       setAlerts(rules);
       setIncidents(history);
+      const currentIncidentId = selectedIncidentRef.current;
+      if (currentIncidentId && !history.some((incident) => incident.id === currentIncidentId)) setSelectedIncidentId(history[0]?.id ?? null);
+      if (!currentIncidentId && history[0] && !incidentSelectionClearedRef.current) setSelectedIncidentId(history[0].id);
       setChannels(channelList);
       setDeliveries(deliveryList);
       setAuditEvents(auditPage.events);
@@ -93,6 +109,11 @@ export function AlertsPanel() {
       setChannels([]);
       setDeliveries([]);
       setAuditEvents([]);
+      setSelectedIncidentId(null);
+      setTimeline(null);
+      setImpact(null);
+      setNotificationSummary(null);
+      incidentSelectionClearedRef.current = false;
       void reload(controller.signal);
     }, 0);
     const timer = window.setInterval(() => void reload(controller.signal, true), 10_000);
@@ -102,6 +123,30 @@ export function AlertsPanel() {
       window.clearInterval(timer);
     };
   }, [activeWorkspaceId, reload]);
+
+  useEffect(() => {
+    if (!selectedIncidentId) {
+      return;
+    }
+    const controller = new AbortController();
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
+    void Promise.all([
+      api.getIncidentTimeline(selectedIncidentId, controller.signal),
+      api.getIncidentImpact(selectedIncidentId, controller.signal),
+      api.getIncidentNotificationSummary(selectedIncidentId, controller.signal),
+    ]).then(([nextTimeline, nextImpact, nextSummary]) => {
+      if (controller.signal.aborted || requestId !== detailRequestRef.current) return;
+      setIncidentDetailError(null);
+      setTimeline(nextTimeline);
+      setImpact(nextImpact);
+      setNotificationSummary(nextSummary);
+    }).catch((error: unknown) => {
+      if (controller.signal.aborted || requestId !== detailRequestRef.current) return;
+      setIncidentDetailError(error instanceof Error ? error.message : "Incident detail unavailable");
+    });
+    return () => controller.abort();
+  }, [api, activeWorkspaceId, selectedIncidentId]);
 
   const save = async () => {
     const validation = validateAlertDraft(draft);
@@ -175,6 +220,44 @@ export function AlertsPanel() {
     });
   };
 
+  const selectIncident = (incidentId: string) => {
+    incidentSelectionClearedRef.current = false;
+    selectedIncidentRef.current = incidentId;
+    setIncidentDetailError(null);
+    setTimeline(null);
+    setImpact(null);
+    setNotificationSummary(null);
+    setSelectedIncidentId(incidentId);
+  };
+
+  const clearIncidentSelection = () => {
+    incidentSelectionClearedRef.current = true;
+    selectedIncidentRef.current = null;
+    detailRequestRef.current += 1;
+    setSelectedIncidentId(null);
+    setTimeline(null);
+    setImpact(null);
+    setNotificationSummary(null);
+    setIncidentDetailError(null);
+  };
+
+  const selectedIncident = useMemo(() => incidents.find((incident) => incident.id === selectedIncidentId), [incidents, selectedIncidentId]);
+  const selectedAlert = useMemo(() => alerts.find((rule) => rule.id === selectedIncident?.alertRuleId), [alerts, selectedIncident]);
+  const impactedNames = useMemo(() => affectedServiceNames(impact ?? undefined), [impact]);
+
+  useEffect(() => {
+    if (!selectedIncident) {
+      window.dispatchEvent(new CustomEvent("observa:incident-impact", { detail: { rootName: null, affectedNames: [] } }));
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("observa:incident-impact", {
+      detail: {
+        rootName: impact?.rootService?.name ?? null,
+        affectedNames: impact?.affectedServices.map((service) => service.name) ?? [],
+      },
+    }));
+  }, [impact, selectedIncident]);
+
   return (
     <section className="panel alerts-panel">
       <div className="section-heading"><h2>Alerts</h2><span>{message ?? `${alerts.length} rules / ${incidents.length} incidents / ${deliveries.length} deliveries / ${auditEvents.length} audit events`}</span></div>
@@ -240,12 +323,41 @@ export function AlertsPanel() {
         </div>
         <div className="incident-list">
           {incidents.length === 0 ? <p>No incidents recorded.</p> : incidents.map((incident) => (
-            <article className={`incident-row ${incident.status}`} key={incident.id}>
+            <article className={`incident-row ${incident.status} ${selectedIncident?.id === incident.id ? "selected" : ""}`} key={incident.id}>
               <strong>{incident.ruleName ?? "Alert"}</strong>
               <span>{incident.status}: {incident.triggeringValue.toFixed(2)} / {incident.threshold}</span>
               <span>{formatDate(incident.openedAt)} {"->"} {formatDate(incident.resolvedAt)}</span>
+              <button type="button" onClick={() => selectIncident(incident.id)}>Details</button>
             </article>
           ))}
+        </div>
+        <div className="incident-list incident-detail">
+          {!selectedIncident ? <p>Select an incident to inspect timeline and impact.</p> : (
+            <article className={`incident-row ${selectedIncident.status}`}>
+              <strong>{selectedIncident.ruleName ?? "Incident detail"}</strong>
+              <button type="button" onClick={clearIncidentSelection}>Clear</button>
+              <span>{selectedIncident.status} / {formatDuration(incidentDurationMs(selectedIncident))}</span>
+              <span>{selectedAlert?.service ?? "No service"} / {selectedAlert ? `${selectedAlert.metric} ${selectedAlert.operator} ${selectedAlert.threshold}` : "Alert unavailable"}</span>
+              <p>{selectedIncident.message}</p>
+              <div className="incident-summary">
+                <span>{notificationSummaryText(notificationSummary ?? undefined)}</span>
+                <span>{impact ? `${impact.affectedCount} affected / depth ${impact.maxDepth}` : "Impact loading"}</span>
+              </div>
+              {incidentDetailError ? <span className="error-text">{incidentDetailError}</span> : null}
+              <div className="impact-list">
+                {impact?.impactUnavailable ? <span>Impact unavailable: {impact.reason}</span> : null}
+                {impactedNames.length === 0 ? <span>No dependency impact found.</span> : impactedNames.map((name) => <span key={name}>{name}</span>)}
+              </div>
+              <ol className="timeline-list">
+                {(timeline?.events ?? []).length === 0 ? <li>No timeline events yet.</li> : timeline?.events.map((event) => (
+                  <li key={event.id}>
+                    <time>{formatDate(event.occurredAt)}</time>
+                    <span>{timelineLabel(event)}</span>
+                  </li>
+                ))}
+              </ol>
+            </article>
+          )}
         </div>
         <div className="incident-list">
           {deliveries.length === 0 ? <p>No notification deliveries recorded.</p> : deliveries.map((delivery) => (

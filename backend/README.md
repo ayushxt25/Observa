@@ -177,6 +177,14 @@ Phase 10 adds durable audit events for authenticated mutations. `GET /api/v1/aud
 
 Phase 11 adds a Service Catalog. Telemetry ingestion auto-creates or updates service rows from accepted event service names in batches, without auditing automatic discovery. The canonical `name` remains the telemetry identifier and is not editable through PATCH; use `displayName` for friendly naming. Service dependencies are manually configured as `http`, `queue`, `database`, or `unknown` until tracing or explicit relationship telemetry exists. Service health is derived from recent workspace telemetry plus active alerts/incidents.
 
+Phase 13 adds incident intelligence endpoints:
+
+- `GET /api/v1/incidents/{id}/timeline`
+- `GET /api/v1/incidents/{id}/impact`
+- `GET /api/v1/incidents/{id}/notifications/summary`
+
+Timeline events are bounded, workspace-scoped and ordered by `occurredAt ASC, id ASC`. Persisted events cover incident lifecycle transitions; notification delivered/failed items are derived from durable notification delivery rows. Impact traversal loads the workspace service graph once and walks upstream dependents in memory with a visited set, so cycles and multiple paths terminate and report minimum depth.
+
 Email delivery uses SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS`). Missing SMTP configuration leaves delivery rows retryable instead of dropping them.
 
 ## Tests

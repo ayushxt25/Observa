@@ -47,6 +47,7 @@ export function ServiceCatalogPanel() {
   const [filters, setFilters] = useState({ search: "", health: "", environment: "", tag: "" });
   const [message, setMessage] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [incidentImpact, setIncidentImpact] = useState<{ rootName: string | null; affectedNames: string[] }>({ rootName: null, affectedNames: [] });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
@@ -90,6 +91,15 @@ export function ServiceCatalogPanel() {
     };
   }, [workspaceId, reload]);
 
+  useEffect(() => {
+    const onImpact = (event: Event) => {
+      const detail = (event as CustomEvent<{ rootName?: string | null; affectedNames?: string[] }>).detail;
+      setIncidentImpact({ rootName: detail?.rootName ?? null, affectedNames: detail?.affectedNames ?? [] });
+    };
+    window.addEventListener("observa:incident-impact", onImpact);
+    return () => window.removeEventListener("observa:incident-impact", onImpact);
+  }, []);
+
   const filteredServices = useMemo(() => services.filter((service) => serviceMatchesFilters(service, filters)), [filters, services]);
   const environments = useMemo(() => Array.from(new Set(services.map((service) => service.environment).filter(Boolean) as string[])).sort(), [services]);
   const tags = useMemo(() => Array.from(new Set(services.flatMap((service) => service.tags))).sort(), [services]);
@@ -97,6 +107,15 @@ export function ServiceCatalogPanel() {
   const visibleIds = useMemo(() => new Set(filteredServices.map((service) => service.id)), [filteredServices]);
   const visibleDependencies = useMemo(() => dependencies.filter((dependency) => visibleIds.has(dependency.sourceServiceId) && visibleIds.has(dependency.targetServiceId)), [dependencies, visibleIds]);
   const topology = useMemo(() => buildTopologyLayout(filteredServices, visibleDependencies), [filteredServices, visibleDependencies]);
+  const impactedServiceNames = useMemo(() => new Set(incidentImpact.affectedNames), [incidentImpact]);
+  const serviceNameById = useMemo(() => new Map(services.map((service) => [service.id, service.name])), [services]);
+
+  const impactClass = (name: string | undefined): string => {
+    if (!name) return "";
+    if (incidentImpact.rootName === name) return "impact-root";
+    if (impactedServiceNames.has(name)) return "impact-affected";
+    return "";
+  };
 
   const saveService = async () => {
     if (!draft.name.trim()) {
@@ -163,7 +182,7 @@ export function ServiceCatalogPanel() {
       <div className="service-layout">
         <div className="service-list">
           {filteredServices.length === 0 ? <p>No services observed yet.</p> : filteredServices.map((service) => (
-            <button type="button" className={`service-row health-${service.health} ${selectedId === service.id ? "active" : ""}`} key={service.id} onClick={() => setSelectedId(service.id)}>
+            <button type="button" className={`service-row health-${service.health} ${selectedId === service.id ? "active" : ""} ${impactClass(service.name)}`} key={service.id} onClick={() => setSelectedId(service.id)}>
               <strong>{service.displayName || service.name}</strong>
               <span>{healthLabel(service.health)} / {service.environment || "no env"} / {service.recentEventCount} events</span>
               <span>{formatMetric(service.avgLatency, " ms")} latency / {formatMetric(service.errorRate, "%")} errors</span>
@@ -231,7 +250,7 @@ export function ServiceCatalogPanel() {
               </g>
             ))}
             {topology.nodes.map((node) => (
-              <g key={node.id} className={`service-node health-${node.health} ${selectedId === node.id ? "active" : ""}`} transform={`translate(${node.x} ${node.y})`} onMouseEnter={() => setHoveredNode(node.id)} onMouseLeave={() => setHoveredNode(null)} onClick={() => setSelectedId(node.id)}>
+              <g key={node.id} className={`service-node health-${node.health} ${selectedId === node.id ? "active" : ""} ${impactClass(serviceNameById.get(node.id))}`} transform={`translate(${node.x} ${node.y})`} onMouseEnter={() => setHoveredNode(node.id)} onMouseLeave={() => setHoveredNode(null)} onClick={() => setSelectedId(node.id)}>
                 <circle r="26" />
                 <text y="44">{node.label}</text>
               </g>

@@ -99,3 +99,66 @@ class IncidentOut(ApiModel):
 
 class IncidentListResponse(ApiModel):
     incidents: list[IncidentOut]
+
+
+IncidentTimelineEventType = Literal[
+    "incident.opened",
+    "incident.resolved",
+    "notification.delivered",
+    "notification.failed",
+]
+
+
+class IncidentTimelineEventOut(ApiModel):
+    id: str
+    incident_id: str
+    event_type: IncidentTimelineEventType | str
+    source_type: str | None = None
+    source_id: str | None = None
+    actor_type: str | None = None
+    title: str
+    metadata: dict[str, object] = Field(default_factory=dict)
+    occurred_at: datetime
+
+
+class IncidentTimelineResponse(ApiModel):
+    events: list[IncidentTimelineEventOut]
+    limited: bool = False
+
+
+class IncidentImpactService(ApiModel):
+    service_id: str | None = None
+    name: str
+    display_name: str | None = None
+    depth: int
+    impact_status: Literal["root_cause", "affected"]
+
+
+class IncidentImpactEdge(ApiModel):
+    id: str
+    source_service_id: str
+    target_service_id: str
+    source_service_name: str
+    target_service_name: str
+    dependency_type: str
+
+
+class IncidentImpactResponse(ApiModel):
+    root_service: IncidentImpactService | None
+    affected_services: list[IncidentImpactService]
+    dependency_edges: list[IncidentImpactEdge]
+    affected_count: int
+    max_depth: int
+    impact_unavailable: bool = False
+    reason: str | None = None
+
+
+class IncidentNotificationSummary(ApiModel):
+    pending: int = 0
+    delivering: int = 0
+    delivered: int = 0
+    failed: int = 0
+
+
+class IncidentNotificationSummaryResponse(ApiModel):
+    summary: IncidentNotificationSummary

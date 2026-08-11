@@ -513,6 +513,34 @@ input:disabled {
   border-color: rgba(251, 113, 133, 0.68);
 }
 
+.incident-summary,
+.impact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.impact-list span {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.timeline-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.timeline-list li {
+  margin-bottom: 6px;
+}
+
+.timeline-list time {
+  color: var(--muted);
+  display: inline-block;
+  min-width: 78px;
+}
+
 .service-catalog-panel {
   display: grid;
   gap: 12px;
@@ -565,6 +593,16 @@ input:disabled {
 .service-node.active circle {
   border-color: var(--accent);
   stroke: var(--accent);
+}
+
+.service-row.impact-root,
+.service-node.impact-root circle {
+  outline: 2px solid rgba(251, 113, 133, 0.8);
+}
+
+.service-row.impact-affected,
+.service-node.impact-affected circle {
+  outline: 2px solid rgba(250, 204, 21, 0.78);
 }
 
 .service-detail {

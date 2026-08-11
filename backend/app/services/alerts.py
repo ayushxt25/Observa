@@ -9,6 +9,7 @@ from app.repositories.notifications import NotificationRepository
 from app.query.engine import TelemetryQueryEngine
 from app.query.schemas import QueryFilters, TelemetryQueryRequest
 from app.schemas.alerts import AlertEvaluationResponse
+from app.services.incident_intelligence import IncidentTimelineService
 from app.services.notifications import NotificationDeliveryService
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class AlertEvaluationService:
         self.alerts = AlertRepository(db)
         self.notifications = NotificationRepository(db)
         self.query_engine = TelemetryQueryEngine(db)
+        self.timeline = IncidentTimelineService(db)
 
     def evaluate_rule(self, rule_id: str, now: datetime | None = None) -> AlertEvaluationResponse:
         started = time.perf_counter()
@@ -64,6 +66,7 @@ class AlertEvaluationService:
                     rule.last_triggered_at = current
                     self.db.flush()
                     incident_id = incident.id
+                    self.timeline.record_opened(incident, value, current)
                     for channel in self.notifications.enabled_channels_for_alert(rule):
                         delivery = self.notifications.create_delivery(incident, channel, "firing")
                         if delivery is not None:
@@ -76,6 +79,7 @@ class AlertEvaluationService:
                 if active is not None:
                     active.status = "resolved"
                     active.resolved_at = current
+                    self.timeline.record_resolved(active, value, current)
                     for channel in self.notifications.enabled_channels_for_alert(rule):
                         delivery = self.notifications.create_delivery(active, channel, "resolved")
                         if delivery is not None:

@@ -9,9 +9,22 @@ from app.db.session import get_db
 from app.models.auth import WorkspaceMembershipModel
 from app.repositories.alerts import AlertRepository
 from app.repositories.notifications import NotificationRepository
-from app.schemas.alerts import AlertEvaluationResponse, AlertListResponse, AlertRuleCreate, AlertRuleOut, AlertRulePatch, IncidentListResponse, IncidentOut, IncidentStatus
+from app.schemas.alerts import (
+    AlertEvaluationResponse,
+    AlertListResponse,
+    AlertRuleCreate,
+    AlertRuleOut,
+    AlertRulePatch,
+    IncidentImpactResponse,
+    IncidentListResponse,
+    IncidentNotificationSummaryResponse,
+    IncidentOut,
+    IncidentStatus,
+    IncidentTimelineResponse,
+)
 from app.services.alerts import AlertEvaluationService
 from app.services.audit import AuditService, changed_fields
+from app.services.incident_intelligence import IncidentImpactServiceBuilder, IncidentTimelineService, notification_summary
 
 router = APIRouter(tags=["alerts"])
 
@@ -134,9 +147,43 @@ def list_incidents(
     return IncidentListResponse(incidents=[incident_out(incident) for incident in repo.list_incidents(status=status_filter, alert_rule_id=alert_rule_id, service=service, recent_hours=recent_hours, workspace_id=membership.workspace_id)])
 
 
-@router.get("/incidents/{incident_id}", response_model=IncidentOut, summary="Get incident")
-def get_incident(incident_id: str, repo: Annotated[AlertRepository, Depends(get_alert_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))]) -> IncidentOut:
-    incident = repo.get_incident(incident_id, membership.workspace_id)
+def load_incident(repo: AlertRepository, incident_id: str, workspace_id: str):
+    incident = repo.get_incident(incident_id, workspace_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")
-    return incident_out(incident)
+    return incident
+
+
+@router.get("/incidents/{incident_id}/timeline", response_model=IncidentTimelineResponse, summary="Get incident timeline")
+def get_incident_timeline(
+    incident_id: str,
+    repo: Annotated[AlertRepository, Depends(get_alert_repository)],
+    membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))],
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+) -> IncidentTimelineResponse:
+    load_incident(repo, incident_id, membership.workspace_id)
+    return IncidentTimelineService(repo.db).timeline(membership.workspace_id, incident_id, limit=limit)
+
+
+@router.get("/incidents/{incident_id}/impact", response_model=IncidentImpactResponse, summary="Get incident dependency impact")
+def get_incident_impact(
+    incident_id: str,
+    repo: Annotated[AlertRepository, Depends(get_alert_repository)],
+    membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))],
+) -> IncidentImpactResponse:
+    return IncidentImpactServiceBuilder(repo.db).impact(load_incident(repo, incident_id, membership.workspace_id))
+
+
+@router.get("/incidents/{incident_id}/notifications/summary", response_model=IncidentNotificationSummaryResponse, summary="Get incident notification summary")
+def get_incident_notification_summary(
+    incident_id: str,
+    repo: Annotated[AlertRepository, Depends(get_alert_repository)],
+    membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))],
+) -> IncidentNotificationSummaryResponse:
+    load_incident(repo, incident_id, membership.workspace_id)
+    return IncidentNotificationSummaryResponse(summary=notification_summary(repo.db, membership.workspace_id, incident_id))
+
+
+@router.get("/incidents/{incident_id}", response_model=IncidentOut, summary="Get incident")
+def get_incident(incident_id: str, repo: Annotated[AlertRepository, Depends(get_alert_repository)], membership: Annotated[WorkspaceMembershipModel, Depends(require_workspace_role("viewer"))]) -> IncidentOut:
+    return incident_out(load_incident(repo, incident_id, membership.workspace_id))
